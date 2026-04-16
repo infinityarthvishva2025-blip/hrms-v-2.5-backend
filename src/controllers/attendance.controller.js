@@ -543,3 +543,4 @@ export const getPendingCorrections = asyncHandler(async (req, res) => {
   const records = await Attendance.find(query).sort({ correctionRequestedOn: -1 });
   res.status(200).json(new ApiResponse(200, records, 'Pending corrections fetched'));
 });
+ 
