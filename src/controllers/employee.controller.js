@@ -333,3 +333,4 @@ export const getUpcomingBirthdays = asyncHandler(async (req, res) => {
     }, 'Upcoming birthdays fetched')
   );
 });
+ 

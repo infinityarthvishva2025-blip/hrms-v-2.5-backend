@@ -14,8 +14,10 @@ const router = express.Router();
 router.use(verifyJWT);
 
 // ── ADMIN / HR ONLY ──
-router.post('/generate', authorizeRoles('SuperUser', 'HR', 'Director'), generatePayroll);
 router.post('/generate-all', authorizeRoles('SuperUser', 'HR', 'Director'), generateAllPayroll);
+
+// ── ALL ROLES (With Internal Auth Checks) ──
+router.post('/generate', authorizeRoles(...ALL_ROLES), generatePayroll);
 router.get('/list', authorizeRoles(...ALL_ROLES), getPayrollList);
 
 // ── INDIVIDUAL ACCESS ──

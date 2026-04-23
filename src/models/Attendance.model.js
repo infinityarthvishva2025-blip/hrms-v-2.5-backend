@@ -40,6 +40,20 @@ const attendanceSchema = new mongoose.Schema(
     checkOutLatitude: { type: Number },
     checkOutLongitude: { type: Number },
 
+    // ── FIELD/WFH ENHANCEMENTS ──
+    workMode: {
+      type: String,
+      enum: ['Office', 'Field', 'WFH'],
+      default: 'Office',
+    },
+    locationHistory: [
+      {
+        latitude: { type: Number, required: true },
+        longitude: { type: Number, required: true },
+        timestamp: { type: Date, default: Date.now },
+      },
+    ],
+
     // ── CORRECTION ──
     correctionRequested: { type: Boolean, default: false },
     correctionStatus: {

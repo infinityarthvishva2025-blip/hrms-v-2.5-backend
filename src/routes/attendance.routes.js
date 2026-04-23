@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   checkIn,
   checkOut,
+  trackLocation,
   getTodayStatus,
   getMySummary,
   getAdminAttendanceList,
@@ -11,6 +12,7 @@ import {
   rejectCorrection,
   getPendingCorrections,
   getAttendanceByDate,
+  getCorrectionHistoryMonthWise,
 } from '../controllers/attendance.controller.js';
 import { verifyJWT } from '../middleware/auth.middleware.js';
 import { authorizeRoles, MANAGEMENT_ROLES } from '../middleware/role.middleware.js';
@@ -22,6 +24,7 @@ router.use(verifyJWT);
 
 router.post('/check-in', checkIn);
 router.post('/check-out', checkOut);
+router.post('/track', trackLocation);
 router.get('/today', getTodayStatus);
 router.get('/my-summary', getMySummary);
 
@@ -38,6 +41,11 @@ router.patch('/correction-reject/:id', authorizeRoles(...MANAGEMENT_ROLES, 'Mana
 
 // -------  attendance details for the selecte date
 router.get('/employee-attendance', authorizeRoles(...MANAGEMENT_ROLES, 'Manager'), getAttendanceByDate);
+
+// -------- attedance history details month wise --
+
+
+router.get('/correction-history' , authorizeRoles(...MANAGEMENT_ROLES, 'Manager') , getCorrectionHistoryMonthWise)
 
 
 export default router;

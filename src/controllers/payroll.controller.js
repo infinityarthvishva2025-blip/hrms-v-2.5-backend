@@ -8,10 +8,30 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
-const calculatePT = (salary, gender, month) => {
+const convertNumberToWords = (amount) => {
+  const words = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
+  const tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+  if (amount === 0) return "Zero";
+  let word = "";
+  let tempAmount = Math.floor(amount);
+  if (tempAmount >= 10000000) { word += convertNumberToWords(Math.floor(tempAmount / 10000000)) + " Crore "; tempAmount %= 10000000; }
+  if (tempAmount >= 100000) { word += convertNumberToWords(Math.floor(tempAmount / 100000)) + " Lakh "; tempAmount %= 100000; }
+  if (tempAmount >= 1000) { word += convertNumberToWords(Math.floor(tempAmount / 1000)) + " Thousand "; tempAmount %= 1000; }
+  if (tempAmount >= 100) { word += convertNumberToWords(Math.floor(tempAmount / 100)) + " Hundred "; tempAmount %= 100; }
+  if (tempAmount > 0) {
+    if (word !== "") word += "and ";
+    if (tempAmount < 20) word += words[tempAmount];
+    else { word += tens[Math.floor(tempAmount / 10)] + " "; word += words[tempAmount % 10]; }
+  }
+  return word.trim();
+};const calculatePT = (salary, gender, month) => {
   // February special rule
   if (month === 1) { // 0-indexed Feb is 1
     return 300;
@@ -131,21 +151,24 @@ export const generatePayroll = asyncHandler(async (req, res) => {
   const { employeeId, month, year, startDate, endDate } = req.body;
   if (!employeeId) throw new ApiError(400, 'employeeId is required');
 
+  const isManagement = ['SuperUser', 'HR', 'Director', 'VP', 'GM', 'Manager'].includes(req.user.role);
+  if (!isManagement && req.user._id.toString() !== employeeId) {
+    throw new ApiError(403, 'You are not authorized to generate payroll for other employees.');
+  }
+
   let fromDate, toDate;
   let targetMonth, targetYear;
 
   if (startDate && endDate) {
-    fromDate = new Date(startDate);
-    fromDate.setHours(0, 0, 0, 0);
-    toDate = new Date(endDate);
-    toDate.setHours(23, 59, 59, 999);
-    targetMonth = toDate.getMonth() + 1;
-    targetYear = toDate.getFullYear();
+    // Force UTC midnight to prevent timezone-related day shifts during generation
+    fromDate = new Date(`${startDate}T00:00:00Z`);
+    toDate = new Date(`${endDate}T23:59:59Z`);
+    targetMonth = toDate.getUTCMonth() + 1;
+    targetYear = toDate.getUTCFullYear();
   } else if (month && year) {
-    fromDate = new Date(year, month - 2, 21);
-    fromDate.setHours(0, 0, 0, 0);
-    toDate = new Date(year, month - 1, 20);
-    toDate.setHours(23, 59, 59, 999);
+    // Default cycle (21st to 20th) logic in UTC
+    fromDate = new Date(Date.UTC(year, month - 2, 21, 0, 0, 0));
+    toDate = new Date(Date.UTC(year, month - 1, 20, 23, 59, 59));
     targetMonth = month;
     targetYear = year;
   } else {
@@ -166,12 +189,10 @@ export const generateAllPayroll = asyncHandler(async (req, res) => {
   const { startDate, endDate } = req.body;
   if (!startDate || !endDate) throw new ApiError(400, 'startDate and endDate are required');
 
-  const fromDate = new Date(startDate);
-  fromDate.setHours(0, 0, 0, 0);
-  const toDate = new Date(endDate);
-  toDate.setHours(23, 59, 59, 999);
-  const targetMonth = toDate.getMonth() + 1;
-  const targetYear = toDate.getFullYear();
+  const fromDate = new Date(`${startDate}T00:00:00Z`);
+  const toDate = new Date(`${endDate}T23:59:59Z`);
+  const targetMonth = toDate.getUTCMonth() + 1;
+  const targetYear = toDate.getUTCFullYear();
 
   // Fetch ALL active employees
   const employees = await Employee.find({ status: 'Active' });
@@ -197,7 +218,7 @@ export const generateAllPayroll = asyncHandler(async (req, res) => {
 // ─── GET PAYROLL LIST ────────────────────────────────────────────────────────
 
 export const getPayrollList = asyncHandler(async (req, res) => {
-  const { month, year, status, startDate, endDate, employeeId, self } = req.query;
+  const { month, year, status, startDate, endDate, employeeId, self, page = 1, limit = 1000 } = req.query;
   const isManagement = ['SuperUser', 'HR', 'Director', 'VP', 'GM', 'Manager'].includes(req.user.role);
   
   let query = {};
@@ -216,11 +237,11 @@ export const getPayrollList = asyncHandler(async (req, res) => {
   // Otherwise: Manager viewing all (e.g. Admin Dashboard list)
 
   if (startDate && endDate) {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
+    const start = new Date(`${startDate}T00:00:00Z`);
+    const end = new Date(`${endDate}T23:59:59Z`);
     if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-      query.fromDate = { $lte: end.setHours(23,59,59,999) };
-      query.toDate = { $gte: start.setHours(0,0,0,0) };
+      query.fromDate = { $lte: end };
+      query.toDate = { $gte: start };
     }
   } else if (month && year) {
     query.month = Number(month);
@@ -229,24 +250,47 @@ export const getPayrollList = asyncHandler(async (req, res) => {
   
   if (status) query.status = status;
 
-  // INCREASE LIMIT to 1000 for management to ensure all 48+ employees are visible
-  const payrolls = await Payroll.find(query)
-    .populate('employeeId', 'name employeeCode department position')
-    .sort({ createdAt: -1 })
-    .limit(1000);
+  const pageNum = Math.max(1, parseInt(page));
+  const limitNum = Math.max(1, parseInt(limit));
+  const skip = (pageNum - 1) * limitNum;
 
-  res.status(200).json(new ApiResponse(200, payrolls, 'Payrolls fetched successfully'));
+  const [payrolls, total] = await Promise.all([
+    Payroll.find(query)
+      .populate('employeeId', 'name employeeCode department position')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum),
+    Payroll.countDocuments(query)
+  ]);
+
+  const totalPages = Math.ceil(total / limitNum);
+
+  res.status(200).json(new ApiResponse(200, {
+    payrolls,
+    pagination: { total, page: pageNum, limit: limitNum, totalPages }
+  }, 'Payrolls fetched successfully'));
 });
 
 // ─── GENERATE SALARY SLIP PDF ────────────────────────────────────────────────
 
 export const getSalarySlip = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const payroll = await Payroll.findById(id).populate('employeeId', 'name employeeCode department position panNumber bankName accountNumber ifsc');
+  const payroll = await Payroll.findById(id).populate('employeeId', 'joiningDate name employeeCode department position panNumber bankName accountNumber ifsc');
   
   if (!payroll) throw new ApiError(404, 'Payroll record not found');
 
-  const doc = new PDFDocument({ margin: 50 });
+  const doc = new PDFDocument({ margin: 40, size: 'A4' });
+  const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  
+  // Format dates strictly using UTC to match the stored data regardless of server timezone
+  const formatUTC = (d) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' }).format(new Date(d));
+  
+  const fromStr = formatUTC(payroll.fromDate);
+  const toStr = formatUTC(payroll.toDate);
+  const targetMonthName = months[payroll.month - 1]; // Use the record's target month field
+  const targetYear = payroll.year;
+  
+  const titleText = `${fromStr} - ${toStr} : PAYSLIP FOR THE MONTH OF ${targetMonthName.toUpperCase()} ${targetYear}`;
   const filename = `SalarySlip_${payroll.employeeCode}_${payroll.month}_${payroll.year}.pdf`;
 
   res.setHeader('Content-Type', 'application/pdf');
@@ -254,97 +298,153 @@ export const getSalarySlip = asyncHandler(async (req, res) => {
 
   doc.pipe(res);
 
-  // ── HEADER ──
-  doc.fontSize(20).text('INFINITY ARHHVISAVA', { align: 'center' });
-  doc.fontSize(10).text('Building Modern HRMS Solutions', { align: 'center' });
-  doc.moveDown();
-  doc.fontSize(14).text('SALARY SLIP', { align: 'center', underline: true });
-  doc.moveDown();
+  // --- BRANDING & HEADER ---
+  const logoPathFront = path.join(__dirname, '../../frontend/src/assets/infinity logo.png');
+  const logoPathBack = path.join(__dirname, '../assets/infinity logo.png');
+  let logoToUse = null;
+  if (fs.existsSync(logoPathFront)) logoToUse = logoPathFront;
+  else if (fs.existsSync(logoPathBack)) logoToUse = logoPathBack;
 
-  // ── EMPLOYEE INFO ──
-  const startX = 50;
-  let currentY = doc.y;
+  if (logoToUse) {
+    // Center logo horizontally (A4 width is approx 595. 595/2 - 70 = 227.5)
+    doc.image(logoToUse, 227.5, 30, { width: 140 });
+  }
 
-  const formatDateRange = (from, to) => {
-    const f = new Date(from).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
-    const t = new Date(to).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-    return `${f} to ${t}`;
-  };
-
-  doc.fontSize(10).text(`Employee Name: ${payroll.employeeName}`, startX, currentY);
-  doc.text(`Employee Code: ${payroll.employeeCode}`, 350, currentY);
-  currentY += 20;
-  doc.text(`Designation: ${payroll.employeeId?.position || 'N/A'}`, startX, currentY);
-  doc.text(`Department: ${payroll.employeeId?.department || 'N/A'}`, 350, currentY);
-  currentY += 20;
-  doc.text(`Period: ${formatDateRange(payroll.fromDate, payroll.toDate)}`, startX, currentY);
-  doc.text(`PAN: ${payroll.employeeId?.panNumber || 'N/A'}`, 350, currentY);
+  // Move cursor sufficiently below the centered logo
+  doc.y = 110;
+  
+  // --- SALARY SLIP TITLE ---
+  doc.rect(40, doc.y, 515, 25).fill('#f2f2f2');
+  doc.fillColor('#333333').fontSize(11).font('Helvetica-Bold')
+     .text(titleText.toUpperCase(), 40, doc.y + 7, { align: 'center' });
+  doc.fillColor('black');
+  
   doc.moveDown(2);
 
-  // ── ATTENDANCE TABLE ──
-  currentY = doc.y;
-  doc.fontSize(11).text('Attendance Summary', startX, currentY, { underline: true });
-  currentY += 20;
-  doc.fontSize(9);
-  doc.text('Total Days', startX, currentY);
-  doc.text('Present', startX + 100, currentY);
-  doc.text('Half Days', startX + 200, currentY);
-  doc.text('Paid Leaves', startX + 300, currentY);
-  doc.text('Paid Days', startX + 400, currentY);
-  currentY += 15;
-  doc.text(`${payroll.totalDaysInMonth}`, startX, currentY);
-  doc.text(`${payroll.presentDays}`, startX + 100, currentY);
-  doc.text(`${payroll.halfDays}`, startX + 200, currentY);
-  doc.text(`${payroll.paidLeaves}`, startX + 300, currentY);
-  doc.text(`${payroll.paidDays}`, startX + 400, currentY);
+  // --- EMPLOYEE SUMMARY SECTION ---
+  const startY = doc.y;
+  doc.font('Helvetica');
+  const col1 = 45; const col2 = 150; const col3 = 300; const col4 = 400;
+
+  const formatDate = (dateString) => dateString ? new Date(dateString).toLocaleDateString('en-GB') : 'N/A';
+  
+  doc.fontSize(9).font('Helvetica-Bold').text('Employee Name:', col1, startY);
+  doc.font('Helvetica').text(`${payroll.employeeName || 'N/A'}`, col2, startY);
+  
+  doc.font('Helvetica-Bold').text('Employee ID:', col3, startY);
+  doc.font('Helvetica').text(`${payroll.employeeCode || 'N/A'}`, col4, startY);
+
+  doc.font('Helvetica-Bold').text('Designation:', col1, startY + 20);
+  doc.font('Helvetica').text(`${payroll.employeeId?.position || 'N/A'}`, col2, startY + 20);
+
+  doc.font('Helvetica-Bold').text('Department:', col3, startY + 20);
+  doc.font('Helvetica').text(`${payroll.employeeId?.department || 'N/A'}`, col4, startY + 20);
+  
+  doc.font('Helvetica-Bold').text('Joining Date:', col1, startY + 40);
+  doc.font('Helvetica').text(`${formatDate(payroll.employeeId?.joiningDate)}`, col2, startY + 40);
+
+  doc.font('Helvetica-Bold').text('PAN:', col3, startY + 40);
+  doc.font('Helvetica').text(`${payroll.employeeId?.panNumber || 'N/A'}`, col4, startY + 40);
+
+  doc.font('Helvetica-Bold').text('Bank Name:', col1, startY + 60);
+  doc.font('Helvetica').text(`${payroll.employeeId?.bankName || 'N/A'}`, col2, startY + 60);
+
+  doc.font('Helvetica-Bold').text('Account No:', col3, startY + 60);
+  doc.font('Helvetica').text(`${payroll.employeeId?.accountNumber || 'N/A'}`, col4, startY + 60);
+
+  doc.moveDown(2);
+
+  // --- ATTENDANCE BOX ---
+  let attY = doc.y + 10;
+  doc.rect(40, attY, 515, 45).lineWidth(0.5).stroke('#cccccc');
+  
+  doc.fontSize(8).font('Helvetica-Bold').fillColor('#555555');
+  doc.text('Total Days', 50, attY + 8);
+  doc.text('Paid Days', 130, attY + 8);
+  doc.text('Present', 210, attY + 8);
+  doc.text('Half Days', 290, attY + 8);
+  doc.text('Leaves/Hols', 370, attY + 8);
+  doc.text('Absent/LWP', 450, attY + 8);
+
+  doc.fontSize(10).font('Helvetica').fillColor('black');
+  doc.text(`${payroll.totalDaysInMonth || 0}`, 50, attY + 25);
+  doc.text(`${payroll.paidDays || 0}`, 130, attY + 25);
+  doc.text(`${payroll.presentDays || 0}`, 210, attY + 25);
+  doc.text(`${payroll.halfDays || 0}`, 290, attY + 25);
+  doc.text(`${(payroll.paidLeaves || 0) + (payroll.holidays || 0) + (payroll.weekOffs || 0)}`, 370, attY + 25);
+  doc.text(`${payroll.absentDays || 0}`, 450, attY + 25);
+
   doc.moveDown(3);
 
-  // ── SALARY DETAILS ──
-  currentY = doc.y;
-  doc.fontSize(11).text('Earnings & Deductions', startX, currentY, { underline: true });
-  currentY += 20;
-  
-  // Table Borders
-  doc.rect(startX, currentY, 500, 100).stroke();
-  doc.moveTo(startX + 250, currentY).lineTo(startX + 250, currentY + 100).stroke();
-  
-  doc.fontSize(10);
-  doc.text('Earnings', startX + 10, currentY + 10);
-  doc.text('Amount', startX + 180, currentY + 10);
-  doc.text('Deductions', startX + 260, currentY + 10);
-  doc.text('Amount', startX + 430, currentY + 10);
-  
-  doc.moveTo(startX, currentY + 25).lineTo(startX + 500, currentY + 25).stroke();
-  
-  doc.text('Basic Salary', startX + 10, currentY + 35);
-  doc.text(`${payroll.baseSalary.toLocaleString()}`, startX + 180, currentY + 35);
-  
-  doc.text('Professional Tax (PT)', startX + 260, currentY + 35);
-  doc.text(`${payroll.professionalTax.toLocaleString()}`, startX + 430, currentY + 35);
-  
-  doc.text('Gross Earnings', startX + 10, currentY + 55);
-  doc.text(`${payroll.grossEarnings.toLocaleString()}`, startX + 180, currentY + 55);
+  // --- EARNINGS & DEDUCTIONS TABLE ---
+  let tableY = doc.y + 10;
 
-  doc.moveTo(startX, currentY + 75).lineTo(startX + 500, currentY + 75).stroke();
+  // Table Headers
+  doc.rect(40, tableY, 515, 20).fillAndStroke('#e9ecef', '#cccccc');
+  doc.fillColor('black').font('Helvetica-Bold').fontSize(9);
+  doc.text('EARNINGS', 50, tableY + 6);
+  doc.text('AMOUNT (INR)', 220, tableY + 6, { width: 70, align: 'right' });
+  doc.text('DEDUCTIONS', 310, tableY + 6);
+  doc.text('AMOUNT (INR)', 470, tableY + 6, { width: 70, align: 'right' });
+
+  // Draw central dividing line & outer borders
+  doc.rect(40, tableY, 515, 140).stroke('#cccccc'); // Outer box
+  doc.moveTo(298, tableY).lineTo(298, tableY + 140).stroke('#cccccc'); // Mid vertical
+  doc.moveTo(205, tableY).lineTo(205, tableY + 140).stroke('#cccccc'); // Ear inner
+  doc.moveTo(465, tableY).lineTo(465, tableY + 140).stroke('#cccccc'); // Ded inner
+
+  let rowY = tableY + 25;
+  doc.font('Helvetica').fontSize(9);
+
+  // Earnings Rows
+  let currentGross = parseFloat(payroll.grossEarnings || 0);
+
+  doc.text('Basic Salary', 50, rowY);
+  doc.text(`${currentGross.toFixed(2)}`, 220, rowY, { width: 70, align: 'right' });
+
+  // Deductions Rows
+  let pt = parseFloat(payroll.professionalTax || 0);
+  let otherDed = parseFloat(payroll.otherDeductions || 0);
+
+  doc.text('Professional Tax', 310, rowY);
+  doc.text(`${pt.toFixed(2)}`, 470, rowY, { width: 70, align: 'right' });
+
+  if (otherDed > 0) {
+    doc.text('Other Deductions', 310, rowY + 18);
+    doc.text(`${otherDed.toFixed(2)}`, 470, rowY + 18, { width: 70, align: 'right' });
+  }
+
+  // Draw Total separator
+  doc.moveTo(40, tableY + 120).lineTo(555, tableY + 120).stroke('#cccccc');
   
-  doc.fontSize(11).font('Helvetica-Bold');
-  doc.text('Net Salary', startX + 10, currentY + 85);
-  doc.text(`INR ${payroll.netSalary.toLocaleString()}`, startX + 180, currentY + 85);
-  doc.font('Helvetica');
+  // Totals Line
+  doc.font('Helvetica-Bold');
+  let totEY = tableY + 125;
+  doc.text('Total Earnings', 50, totEY);
+  doc.text(`${currentGross.toFixed(2)}`, 220, totEY, { width: 70, align: 'right' });
+  
+  let totDed = pt + otherDed;
+  doc.text('Total Deductions', 310, totEY);
+  doc.text(`${totDed.toFixed(2)}`, 470, totEY, { width: 70, align: 'right' });
 
-  doc.moveDown(6);
+  // NET SALARY HIGHLIGHT
+  let netY = tableY + 160;
+  doc.rect(40, netY, 515, 30).fillAndStroke('#eef9f2', '#b2d9c0');
+  doc.fillColor('#1f7035').fontSize(11);
+  doc.text('Net Amount Payable:', 50, netY + 10);
+  doc.fontSize(12).text(`INR ${parseFloat(payroll.netSalary || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 400, netY + 9, { width: 140, align: 'right' });
+  
+  // NET SALARY IN WORDS
+  doc.fillColor('black').font('Helvetica').fontSize(9);
+  doc.text(`Amount In Words: Rupees ${convertNumberToWords(Math.round(payroll.netSalary || 0))} Only`, 40, netY + 40);
 
-  // ── BANK INFO ──
-  doc.fontSize(10).text('Bank Details:', startX);
-  doc.text(`Bank: ${payroll.employeeId?.bankName || 'N/A'}`);
-  doc.text(`A/C No: ${payroll.employeeId?.accountNumber || 'N/A'}`);
-  doc.text(`IFSC: ${payroll.employeeId?.ifsc || 'N/A'}`);
-
-  doc.moveDown(4);
-  doc.text('_______________________', startX);
-  doc.text('Authorized Signatory', startX);
-  doc.text('_______________________', 350);
-  doc.text('Employee Signature', 350);
+  // --- FOOTER & SIGNATURE ---
+  let footY = doc.y + 60;
+  
+  // Disclaimer
+  doc.rect(40, footY, 515, 0).stroke('#cccccc');
+  doc.font('Helvetica').fontSize(8).fillColor('gray');
+  doc.text('This is a computer generated document and does not require a physical signature.', 40, footY + 10, { align: 'center' });
 
   doc.end();
 });
