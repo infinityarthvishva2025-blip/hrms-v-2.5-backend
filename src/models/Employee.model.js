@@ -116,6 +116,9 @@ const employeeSchema = new mongoose.Schema(
 
     // ── REFRESH TOKENS ──
     refreshToken: { type: String },
+
+    // ── NOTIFICATIONS ──
+    fcmToken: { type: String },
   },
   { timestamps: true }
 );

@@ -7,6 +7,7 @@ import cookieParser from 'cookie-parser';
 import { connectDB } from './config/db.js';
 import { logger } from './utils/logger.js';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware.js';
+import { verifyJWT } from './middleware/auth.middleware.js';
 
 import authRoutes from './routes/auth.routes.js';
 import attendanceRoutes from './routes/attendance.routes.js';
@@ -16,6 +17,8 @@ import announcementRoutes from './routes/announcement.routes.js';
 import holidayRoutes from './routes/holiday.routes.js';
 import gurukulRoutes from './routes/gurukul.routes.js';
 import payrollRoutes from './routes/payroll.routes.js';
+import { initCronJobs, processBirthdayNotifications } from './cron/birthday.cron.js';
+import { ApiResponse } from './utils/ApiResponse.js';
 
 const app = express();
 
@@ -63,6 +66,29 @@ app.get('/health', (req, res) => {
   });
 });
 
+// ─── TEST NOTIFICATION ROUTE (Remove in production) ─────────────────────────
+app.get('/api/test-birthday-notifications', async (req, res) => {
+  await processBirthdayNotifications();
+  res.json(new ApiResponse(200, null, 'Birthday notifications triggered manually'));
+});
+
+// ─── TEST DIRECT NOTIFICATION ──────────────────────────────────────────────
+app.get('/api/test-my-notification', verifyJWT, async (req, res) => {
+  const { sendNotification } = await import('./services/notification.service.js');
+  const employee = await (await import('./models/Employee.model.js')).Employee.findById(req.user._id);
+  
+  if (!employee?.fcmToken) {
+    return res.status(400).json(new ApiResponse(400, null, 'You have no FCM token registered'));
+  }
+
+  const result = await sendNotification(employee.fcmToken, {
+    title: 'Test Notification 🔔',
+    body: 'If you see this, notifications are working perfectly!',
+  });
+
+  res.json(new ApiResponse(200, result, result ? 'Notification sent' : 'Notification failed (Check server logs)'));
+});
+
 // ─── API ROUTES ────────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api/attendance', attendanceRoutes);
@@ -85,6 +111,7 @@ if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
   connectDB().then(() => {
     app.listen(PORT, () => {
       logger.info(`🚀 Server running on port ${PORT}`);
+      initCronJobs();
     });
   }).catch(err => {
     logger.error('Failed to connect to database', err);

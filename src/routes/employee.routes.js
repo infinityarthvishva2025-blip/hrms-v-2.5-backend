@@ -11,6 +11,7 @@ import {
   getManagementEmployees,
   updateFaceDescriptor,
   getUpcomingBirthdays,
+  updateFcmToken,
 } from '../controllers/employee.controller.js';
 import { verifyJWT } from '../middleware/auth.middleware.js';
 import { authorizeRoles, CAN_CREATE_EMPLOYEE, CAN_EDIT_EMPLOYEE } from '../middleware/role.middleware.js';
@@ -43,6 +44,7 @@ router.post('/', authorizeRoles(...CAN_CREATE_EMPLOYEE), documentFields, createE
 router.put('/:id', authorizeRoles(...CAN_EDIT_EMPLOYEE), documentFields, updateEmployee);
 router.put('/profile/face-descriptor', updateFaceDescriptor);
 router.get('/birthdays/upcoming', getUpcomingBirthdays);
+router.patch('/profile/fcm-token', updateFcmToken);
 router.patch('/:id/status', authorizeRoles(...CAN_EDIT_EMPLOYEE), toggleEmployeeStatus);
 
 export default router;

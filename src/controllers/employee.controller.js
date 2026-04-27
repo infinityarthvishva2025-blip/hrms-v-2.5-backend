@@ -334,3 +334,20 @@ export const getUpcomingBirthdays = asyncHandler(async (req, res) => {
   );
 });
  
+
+// ─── UPDATE FCM TOKEN ─────────────────────────────────────────────────────────
+export const updateFcmToken = asyncHandler(async (req, res) => {
+  const { fcmToken } = req.body;
+
+  if (!fcmToken) {
+    throw new ApiError(400, 'FCM token is required');
+  }
+
+  const employee = await Employee.findById(req.user._id);
+  if (!employee) throw new ApiError(404, 'Employee not found');
+
+  employee.fcmToken = fcmToken;
+  await employee.save({ validateBeforeSave: false });
+
+  res.json(new ApiResponse(200, null, 'FCM token updated successfully'));
+});

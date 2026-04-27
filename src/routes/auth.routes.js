@@ -10,6 +10,10 @@ import {
 } from '../controllers/auth.controller.js';
 import { verifyJWT } from '../middleware/auth.middleware.js';
 
+
+
+
+
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
