@@ -24,7 +24,7 @@ const app = express();
 
 // ─── CORS ──────────────────────────────────────────────────────────────────
 const allowedOrigins = [
-  'http://localhost:5173',
+  'http://localhost:5173', 'https://hrms-v-2-5-frontend.onrender.com/',
   'http://127.0.0.1:5173', 'http://192.168.1.45:5173', "https://hrms-v-2-5-frontend.vercel.app/", 
   
   process.env.FRONTEND_URL,
