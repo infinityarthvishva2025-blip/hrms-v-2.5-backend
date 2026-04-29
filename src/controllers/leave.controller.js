@@ -1,5 +1,6 @@
 import { Leave } from '../models/Leave.model.js';
 import { Employee } from '../models/Employee.model.js';
+import { processMonthlyLeaveAccrual } from '../cron/leave.cron.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -427,10 +428,33 @@ export const approveLeave = asyncHandler(async (req, res) => {
       // ── DEDUCT BALANCE ──
       const employee = await Employee.findById(leave.employeeId);
       if (employee) {
+        let prevBalance = 0;
+        let newBalance = 0;
+        let deducted = false;
+
         if (leave.leaveType === 'Paid') {
-          employee.paidLeaveBalance = Math.max(0, (employee.paidLeaveBalance || 0) - leave.totalDays);
+          prevBalance = employee.paidLeaveBalance || 0;
+          employee.paidLeaveBalance = Math.max(0, prevBalance - leave.totalDays);
+          newBalance = employee.paidLeaveBalance;
+          deducted = true;
         } else if (leave.leaveType === 'CompOff') {
-          employee.compOffBalance = Math.max(0, (employee.compOffBalance || 0) - leave.totalDays);
+          prevBalance = employee.compOffBalance || 0;
+          employee.compOffBalance = Math.max(0, prevBalance - leave.totalDays);
+          newBalance = employee.compOffBalance;
+          deducted = true;
+        }
+
+        if (deducted) {
+          if (!employee.leaveBalanceHistory) employee.leaveBalanceHistory = [];
+          employee.leaveBalanceHistory.push({
+            type: 'Deduction',
+            leaveType: leave.leaveType,
+            amount: leave.totalDays,
+            previousBalance: prevBalance,
+            newBalance: newBalance,
+            remarks: `Leave approved: ${leave.startDate.toDateString()} to ${leave.endDate.toDateString()}`,
+            timestamp: new Date(),
+          });
         }
         await employee.save();
       }
@@ -603,27 +627,17 @@ export const getLeaveStats = asyncHandler(async (req, res) => {
 // ─── MONTHLY LEAVE ACCRUAL & SETTLEMENT ──────────────────────────────────────
 
 export const accrueMonthlyLeaves = asyncHandler(async (req, res) => {
-  // This would typically be called by a CRON job or manually by Admin
-  const employees = await Employee.find({ status: 'Active' });
-  const now = new Date();
-  const currentMonth = now.getMonth(); // 0-11 (April is 3)
-  
-  const results = {
-    credited: 0,
-    resetInApril: false
-  };
+  // Manual trigger for testing
+  await processMonthlyLeaveAccrual();
+  res.status(200).json(new ApiResponse(200, null, 'Monthly leaves accrued successfully'));
+});
 
-  // 1. Credit 1 Paid Leave for the current month
-  for (const emp of employees) {
-    emp.paidLeaveBalance = (emp.paidLeaveBalance || 0) + 1;
-    await emp.save();
-    results.credited++;
-  }
+export const getLeaveBalanceHistory = asyncHandler(async (req, res) => {
+  const employee = await Employee.findById(req.user._id).select('leaveBalanceHistory');
+  if (!employee) throw new ApiError(404, 'Employee not found');
 
-  // 2. April Settlement Logic
-  if (currentMonth === 3) { // April is month 4 (UTC) or 3 (0-indexed)
-    results.resetInApril = true;
-  }
+  // Sort history by timestamp descending
+  const history = (employee.leaveBalanceHistory || []).sort((a, b) => b.timestamp - a.timestamp);
 
-  res.status(200).json(new ApiResponse(200, results, 'Monthly leaves accrued successfully'));
+  res.json(new ApiResponse(200, history, 'Leave balance history fetched'));
 });

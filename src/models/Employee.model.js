@@ -112,6 +112,22 @@ const employeeSchema = new mongoose.Schema(
     // ── LEAVE BALANCES ──
     compOffBalance: { type: Number, default: 0 },
     paidLeaveBalance: { type: Number, default: 0 },
+    lastLeaveAccrualDate: { type: Date },
+    leaveBalanceHistory: [
+      {
+        type: {
+          type: String,
+          enum: ['Accrual', 'Deduction', 'Adjustment', 'Reset', 'CarryOver'],
+          required: true,
+        },
+        leaveType: { type: String, enum: ['Paid', 'CompOff'], required: true },
+        amount: { type: Number, required: true },
+        previousBalance: { type: Number, required: true },
+        newBalance: { type: Number, required: true },
+        remarks: { type: String },
+        timestamp: { type: Date, default: Date.now },
+      },
+    ],
     lastWorkingDate: { type: Date },
 
     // ── REFRESH TOKENS ──

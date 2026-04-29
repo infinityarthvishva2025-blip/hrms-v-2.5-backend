@@ -17,7 +17,8 @@ import announcementRoutes from './routes/announcement.routes.js';
 import holidayRoutes from './routes/holiday.routes.js';
 import gurukulRoutes from './routes/gurukul.routes.js';
 import payrollRoutes from './routes/payroll.routes.js';
-import { initCronJobs, processBirthdayNotifications } from './cron/birthday.cron.js';
+import { initAllCronJobs } from './cron/index.js';
+import { processBirthdayNotifications } from './cron/birthday.cron.js';
 import { ApiResponse } from './utils/ApiResponse.js';
 
 const app = express();
@@ -117,7 +118,7 @@ if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
   connectDB().then(() => {
     app.listen(PORT, () => {
       logger.info(`🚀 Server running on port ${PORT}`);
-      initCronJobs();
+      initAllCronJobs();
     });
   }).catch(err => {
     logger.error('Failed to connect to database', err);

@@ -10,6 +10,7 @@ import {
   cancelLeave,
   getLeaveStats,
   accrueMonthlyLeaves,
+  getLeaveBalanceHistory,
 } from '../controllers/leave.controller.js';
 import { verifyJWT } from '../middleware/auth.middleware.js';
 import { authorizeRoles } from '../middleware/role.middleware.js';
@@ -28,6 +29,7 @@ router.get(
 
 // ── MY LEAVES (any authenticated user) ──
 router.get('/my', getMyLeaves);
+router.get('/history', getLeaveBalanceHistory);
 
 // ── PENDING LEAVES (approvers only) ──
 router.get(
