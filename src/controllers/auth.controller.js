@@ -63,6 +63,8 @@ export const login = asyncHandler(async (req, res) => {
     department: employee.department,
     position: employee.position,
     profileImageUrl: employee.profileImageUrl,
+    paidLeaveBalance: employee.paidLeaveBalance || 0,
+    compOffBalance: employee.compOffBalance || 0,
   };
 
   res
@@ -157,6 +159,8 @@ export const updateProfile = asyncHandler(async (req, res) => {
     department: employee.department,
     position: employee.position,
     profileImageUrl: employee.profileImageUrl,
+    paidLeaveBalance: employee.paidLeaveBalance || 0,
+    compOffBalance: employee.compOffBalance || 0,
   };
 
   res.json(new ApiResponse(200, safeEmployee, 'Profile updated successfully'));
