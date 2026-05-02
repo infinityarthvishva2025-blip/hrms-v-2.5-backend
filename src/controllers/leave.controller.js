@@ -442,6 +442,20 @@ export const approveLeave = asyncHandler(async (req, res) => {
           employee.compOffBalance = Math.max(0, prevBalance - leave.totalDays);
           newBalance = employee.compOffBalance;
           deducted = true;
+
+          // Mark specific accruals as used (FIFO)
+          let daysToMark = leave.totalDays;
+          if (employee.leaveBalanceHistory) {
+            for (let i = 0; i < employee.leaveBalanceHistory.length; i++) {
+              const entry = employee.leaveBalanceHistory[i];
+              if (entry.leaveType === 'CompOff' && entry.type === 'Accrual' && !entry.isUsed) {
+                entry.isUsed = true;
+                entry.usedDate = new Date();
+                daysToMark -= entry.amount;
+                if (daysToMark <= 0) break;
+              }
+            }
+          }
         }
 
         if (deducted) {
@@ -628,7 +642,7 @@ export const getLeaveStats = asyncHandler(async (req, res) => {
 
 export const accrueMonthlyLeaves = asyncHandler(async (req, res) => {
   // Manual trigger for testing
-  await processMonthlyLeaveAccrual();
+ // await processMonthlyLeaveAccrual();
   res.status(200).json(new ApiResponse(200, null, 'Monthly leaves accrued successfully'));
 });
 
@@ -640,4 +654,44 @@ export const getLeaveBalanceHistory = asyncHandler(async (req, res) => {
   const history = (employee.leaveBalanceHistory || []).sort((a, b) => b.timestamp - a.timestamp);
 
   res.json(new ApiResponse(200, history, 'Leave balance history fetched'));
+});
+
+
+
+//--- comp off screen -- view the compoffs
+
+
+export const getCompOffBalanceHistory = asyncHandler(async (req, res) => {
+  const employee = await Employee.findById(req.user._id).select('leaveBalanceHistory compOffBalance');
+  if (!employee) throw new ApiError(404, 'Employee not found');
+
+  const now = new Date();
+
+  const history = (employee.leaveBalanceHistory || [])
+    .filter((item) => item.leaveType === 'CompOff')
+    .map((item) => {
+      let status = 'Available';
+      if (item.type === 'Accrual') {
+        if (item.isUsed) status = 'Used';
+        else if (item.expiryDate && new Date(item.expiryDate) < now) status = 'Expired';
+      } else {
+        status = 'Deduction';
+      }
+
+      return {
+        _id: item._id,
+        type: item.type,
+        amount: item.amount,
+        earnedDate: item.earnedDate || item.timestamp,
+        expiryDate: item.expiryDate,
+        status: status,
+        usedDate: item.usedDate,
+        remarks: item.remarks,
+        timestamp: item.timestamp,
+        newBalance: item.newBalance
+      };
+    })
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+  res.json(new ApiResponse(200, { history, currentBalance: employee.compOffBalance }, 'Comp-Off balance history fetched'));
 });

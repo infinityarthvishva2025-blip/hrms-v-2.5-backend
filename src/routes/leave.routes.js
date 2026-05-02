@@ -11,6 +11,7 @@ import {
   getLeaveStats,
   accrueMonthlyLeaves,
   getLeaveBalanceHistory,
+  getCompOffBalanceHistory,
 } from '../controllers/leave.controller.js';
 import { verifyJWT } from '../middleware/auth.middleware.js';
 import { authorizeRoles } from '../middleware/role.middleware.js';
@@ -30,6 +31,7 @@ router.get(
 // ── MY LEAVES (any authenticated user) ──
 router.get('/my', getMyLeaves);
 router.get('/history', getLeaveBalanceHistory);
+router.get('/comp-off-history', getCompOffBalanceHistory);
 
 // ── PENDING LEAVES (approvers only) ──
 router.get(

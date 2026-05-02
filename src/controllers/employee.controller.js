@@ -143,7 +143,8 @@ export const createEmployee = asyncHandler(async (req, res) => {
     position: body.position,
     role: body.role || 'Employee',
     salary: body.salary,
-    reportingManager: body.reportingManager,
+    reportingManagers: body.reportingManagers ? (typeof body.reportingManagers === 'string' ? JSON.parse(body.reportingManagers) : body.reportingManagers) : [],
+    managerIds: body.managerIds ? (typeof body.managerIds === 'string' ? JSON.parse(body.managerIds) : body.managerIds) : [],
     experienceType: body.experienceType,
     totalExperienceYears: body.totalExperienceYears,
     lastCompanyName: body.lastCompanyName,
@@ -217,7 +218,7 @@ export const updateEmployee = asyncHandler(async (req, res) => {
   const fields = ['name', 'email', 'mobileNumber', 'alternateMobileNumber',
     'gender', 'dateOfBirth', 'maritalStatus', 'fatherName', 'motherName',
     'currentAddress', 'permanentAddress', 'district', 'state', 'pincode',
-    'joiningDate', 'department', 'position', 'role', 'salary', 'reportingManager',
+    'joiningDate', 'department', 'position', 'role', 'salary', 'reportingManagers', 'managerIds',
     'experienceType', 'totalExperienceYears', 'lastCompanyName',
     'hscPercent', 'graduationCourse', 'graduationPercent',
     'postGraduationCourse', 'postGraduationPercent',
@@ -227,6 +228,13 @@ export const updateEmployee = asyncHandler(async (req, res) => {
     'emergencyContactMobile', 'emergencyContactAddress',
     'hasDisease', 'diseaseName', 'diseaseType', 'diseaseSince',
     'medicinesRequired', 'doctorName', 'doctorContact'];
+
+  if (body.reportingManagers && typeof body.reportingManagers === 'string') {
+    try { body.reportingManagers = JSON.parse(body.reportingManagers); } catch (e) { /* ignore */ }
+  }
+  if (body.managerIds && typeof body.managerIds === 'string') {
+    try { body.managerIds = JSON.parse(body.managerIds); } catch (e) { /* ignore */ }
+  }
 
   for (const field of fields) {
     if (body[field] !== undefined) employee[field] = body[field];

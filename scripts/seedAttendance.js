@@ -143,7 +143,7 @@ const seedAttendance = async () => {
     await connectDB();
     await preloadEmployees();
 
-    const workbook = xlsx.readFile('./src/attendance.xlsx');
+    const workbook = xlsx.readFile('./src/al2.xlsx');
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = xlsx.utils.sheet_to_json(sheet);
 

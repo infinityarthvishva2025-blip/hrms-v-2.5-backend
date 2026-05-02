@@ -179,13 +179,31 @@ export const checkOut = asyncHandler(async (req, res) => {
   attendance.reportParticipants = reportParticipants;
 
   // ── COMP-OFF EARNING LOGIC ──
-  const isSunday = today.getDay() === 0;
-  const isHoliday = await Holiday.findOne({ date: today });
-
   if ((isSunday || isHoliday) && !attendance.isCompOffCredited) {
     const emp = await Employee.findById(employee._id);
     if (emp) {
-      emp.compOffBalance = (emp.compOffBalance || 0) + 1;
+      const prevBalance = emp.compOffBalance || 0;
+      emp.compOffBalance = prevBalance + 1;
+
+      // ── RECORD HISTORY ──
+      const earnedDate = today;
+      const expiryDate = new Date(today);
+      expiryDate.setMonth(expiryDate.getMonth() + 6); // 6 months expiry
+
+      if (!emp.leaveBalanceHistory) emp.leaveBalanceHistory = [];
+      emp.leaveBalanceHistory.push({
+        type: 'Accrual',
+        leaveType: 'CompOff',
+        amount: 1,
+        previousBalance: prevBalance,
+        newBalance: emp.compOffBalance,
+        remarks: `Comp-Off earned for working on ${isSunday ? 'Sunday' : 'Holiday'} (${today.toDateString()})`,
+        timestamp: new Date(),
+        earnedDate,
+        expiryDate,
+        isUsed: false
+      });
+
       await emp.save();
       attendance.isCompOffCredited = true;
       attendance.status = 'Coff'; // Mark as Comp-Off day

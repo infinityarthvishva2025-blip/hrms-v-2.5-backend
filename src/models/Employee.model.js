@@ -51,8 +51,8 @@ const employeeSchema = new mongoose.Schema(
     department: { type: String, trim: true },
     position: { type: String, trim: true },
     salary: { type: Number },
-    reportingManager: { type: String },
-    managerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Employee' },
+    reportingManagers: [String],
+    managerIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Employee' }],
 
     // ── EXPERIENCE ──
     experienceType: { type: String, enum: ['Fresher', 'Experienced' ] },
@@ -126,6 +126,10 @@ const employeeSchema = new mongoose.Schema(
         newBalance: { type: Number, required: true },
         remarks: { type: String },
         timestamp: { type: Date, default: Date.now },
+        earnedDate: { type: Date }, // For Comp-Off tracking
+        expiryDate: { type: Date }, // For Comp-Off tracking
+        isUsed: { type: Boolean, default: false }, // For Comp-Off tracking
+        usedDate: { type: Date }, // For Comp-Off tracking
       },
     ],
     lastWorkingDate: { type: Date },
