@@ -156,6 +156,13 @@ export const checkOut = asyncHandler(async (req, res) => {
   const dayOfWeek = now.getDay();
   const shiftMinutes = dayOfWeek === 6 ? 420 : 510;
 
+  // ── COMPUTE isSunday / isHoliday (used for comp-off logic below) ──
+  const isSunday = dayOfWeek === 0;
+  const holidayRecord = await Holiday.findOne({
+    date: { $gte: startOfDay(now), $lte: endOfDay(now) },
+  });
+  const isHoliday = !!holidayRecord;
+
   let overtimeMinutes = 0;
   let shortfallMinutes = 0;
   if (totalMinutes >= shiftMinutes) {
