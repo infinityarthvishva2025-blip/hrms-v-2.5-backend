@@ -9,6 +9,11 @@ import { CAN_CREATE_EMPLOYEE, CAN_EDIT_EMPLOYEE } from '../middleware/role.middl
 export const getAllEmployees = asyncHandler(async (req, res) => {
   const { search, status, department, role, page = 1, limit = 50 } = req.query;
   const query = {};
+  
+  // Managers can only see their direct reports
+  if (req.user.role === 'Manager') {
+    query.managerIds = req.user._id;
+  }
 
   if (status) query.status = status;
   if (department) query.department = { $regex: department, $options: 'i' };
@@ -66,9 +71,18 @@ export const getEmployeeById = asyncHandler(async (req, res) => {
   if (!employee) throw new ApiError(404, 'Employee not found');
 
   // Employees/Interns can only view themselves
-  if (['Employee', 'Intern'].includes(req.user.role) &&
+  if (['Employee', 'Intern', 'fresher'].includes(req.user.role) &&
     employee._id.toString() !== req.user._id.toString()) {
     throw new ApiError(403, 'Access denied');
+  }
+
+  // Managers can only view themselves or their direct reports
+  if (req.user.role === 'Manager') {
+    const isSelf = employee._id.toString() === req.user._id.toString();
+    const isReport = employee.managerIds.some(mId => mId.toString() === req.user._id.toString());
+    if (!isSelf && !isReport) {
+      throw new ApiError(403, 'Access denied. You can only view your direct reports.');
+    }
   }
 
   res.json(new ApiResponse(200, employee, 'Employee fetched'));
@@ -190,6 +204,14 @@ export const updateEmployee = asyncHandler(async (req, res) => {
     throw new ApiError(403, 'Insufficient permissions to edit employee');
   }
 
+  // Managers can only edit their direct reports
+  if (req.user.role === 'Manager') {
+    const isReport = employee.managerIds.some(mId => mId.toString() === req.user._id.toString());
+    if (!isReport) {
+      throw new ApiError(403, 'Access denied. You can only edit your direct reports.');
+    }
+  }
+
   // ── UPDATE PROFILE IMAGE ──
   if (files.profileImage?.[0]) {
     const result = await uploadToCloudinary(files.profileImage[0].buffer, {
@@ -264,6 +286,14 @@ export const toggleEmployeeStatus = asyncHandler(async (req, res) => {
 
   const employee = await Employee.findById(id);
   if (!employee) throw new ApiError(404, 'Employee not found');
+
+  // Managers can only toggle status for their direct reports
+  if (req.user.role === 'Manager') {
+    const isReport = employee.managerIds.some(mId => mId.toString() === req.user._id.toString());
+    if (!isReport) {
+      throw new ApiError(403, 'Access denied. You can only manage your direct reports.');
+    }
+  }
 
   employee.status = status;
   if (status === 'Inactive') {
