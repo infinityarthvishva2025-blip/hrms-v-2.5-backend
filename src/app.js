@@ -25,7 +25,7 @@ const app = express();
 
 // ─── CORS ──────────────────────────────────────────────────────────────────
 const allowedOrigins = [
-  'http://localhost:5173',
+  'http://localhost:5173','https://hrmsv2.infinityarthvishva.com/',
   'http://127.0.0.1:5173',
   'http://192.168.1.45:5173','https://hrms-frontend-smoky-ten.vercel.app', 'https://tranquil-caramel-4d0998.netlify.app',
 
