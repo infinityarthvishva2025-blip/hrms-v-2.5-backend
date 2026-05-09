@@ -54,36 +54,25 @@ const corsOptions = {
 
     console.log('🌐 Request Origin:', origin);
 
-    // Allow Postman, Mobile Apps, Server-to-Server requests
     if (!origin) {
       return callback(null, true);
     }
 
-    // Allow all origins in development mode
-    if (process.env.NODE_ENV === 'development') {
+    if (
+      allowedOrigins.includes(origin) ||
+      process.env.NODE_ENV === 'development'
+    ) {
       return callback(null, true);
     }
 
-    // Check allowed origins
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-
-    console.error('❌ CORS Blocked Origin:', origin);
+    console.error('❌ Blocked by CORS:', origin);
 
     return callback(new Error('CORS not allowed by policy'));
   },
 
   credentials: true,
 
-  methods: [
-    'GET',
-    'POST',
-    'PUT',
-    'PATCH',
-    'DELETE',
-    'OPTIONS',
-  ],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 
   allowedHeaders: [
     'Content-Type',
@@ -91,11 +80,10 @@ const corsOptions = {
   ],
 };
 
-// IMPORTANT
+// Apply CORS
 app.use(cors(corsOptions));
 
-// IMPORTANT FOR PREFLIGHT REQUESTS
-
+// Handle OPTIONS requests safely
 app.options(/.*/, cors(corsOptions));
 
 
