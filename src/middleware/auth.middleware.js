@@ -1,6 +1,6 @@
 import { verifyAccessToken } from '../services/jwt.service.js';
 import { Employee } from '../models/Employee.model.js';
-import { SpecialLogin } from '../models/SpecialLogin.model.js';
+import { SpecialLogin } from '../models/specialLogin.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 

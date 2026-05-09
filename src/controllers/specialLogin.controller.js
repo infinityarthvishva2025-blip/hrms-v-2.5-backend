@@ -1,4 +1,4 @@
-import { SpecialLogin } from '../models/SpecialLogin.model.js';
+import { SpecialLogin } from '../models/specialLogin.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
