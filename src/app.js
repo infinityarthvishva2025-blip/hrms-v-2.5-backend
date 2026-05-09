@@ -17,20 +17,29 @@ import announcementRoutes from './routes/announcement.routes.js';
 import holidayRoutes from './routes/holiday.routes.js';
 import gurukulRoutes from './routes/gurukul.routes.js';
 import payrollRoutes from './routes/payroll.routes.js';
-
-
 import specialLoginRoutes from './routes/specialLogin.routes.js';
+
 import { initAllCronJobs } from './cron/index.js';
 import { processBirthdayNotifications } from './cron/birthday.cron.js';
+
 import { ApiResponse } from './utils/ApiResponse.js';
 
 const app = express();
 
-// ─── CORS ──────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────
+// CORS CONFIGURATION
+// ─────────────────────────────────────────────────────────────
+
 const allowedOrigins = [
-  'http://localhost:5173','https://hrmsv2.infinityarthvishva.com',
+  'http://localhost:5173',
   'http://127.0.0.1:5173',
-  'http://192.168.1.45:5173','https://hrms-frontend-smoky-ten.vercel.app', 'https://tranquil-caramel-4d0998.netlify.app',
+  'http://192.168.1.45:5173',
+
+  'https://hrmsv2.infinityarthvishva.com',
+
+  'https://hrms-frontend-smoky-ten.vercel.app',
+  'https://tranquil-caramel-4d0998.netlify.app',
 
   'https://hrms-v-2-5-frontend.onrender.com',
   'https://hrms-v-2-5-frontend.vercel.app',
@@ -38,100 +47,243 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
+console.log('✅ Allowed Origins:', allowedOrigins);
 
-
-app.use(cors({
+const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or Postman)
-    if (!origin) return callback(null, true);
 
-    if (allowedOrigins.includes(origin) || process.env.NODE_ENV === 'development') {
+    console.log('🌐 Request Origin:', origin);
+
+    // Allow Postman, Mobile Apps, Server-to-Server requests
+    if (!origin) {
       return callback(null, true);
-    } else {
-      return callback(new Error('CORS not allowed by policy'));
     }
+
+    // Allow all origins in development mode
+    if (process.env.NODE_ENV === 'development') {
+      return callback(null, true);
+    }
+
+    // Check allowed origins
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    console.error('❌ CORS Blocked Origin:', origin);
+
+    return callback(new Error('CORS not allowed by policy'));
   },
+
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+
+  methods: [
+    'GET',
+    'POST',
+    'PUT',
+    'PATCH',
+    'DELETE',
+    'OPTIONS',
+  ],
+
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+  ],
+};
+
+// IMPORTANT
+app.use(cors(corsOptions));
+
+// IMPORTANT FOR PREFLIGHT REQUESTS
+app.options('*', cors(corsOptions));
+
+
+// ─────────────────────────────────────────────────────────────
+// BODY PARSERS
+// ─────────────────────────────────────────────────────────────
+
+app.use(express.json({ limit: '10mb' }));
+
+app.use(express.urlencoded({
+  extended: true,
+  limit: '10mb',
 }));
 
-app.options('*', cors());
-
-
-// ─── BODY PARSERS ──────────────────────────────────────────────────────────
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
-// ─── LOGGING ───────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────
+// LOGGING
+// ─────────────────────────────────────────────────────────────
+
 if (process.env.NODE_ENV !== 'test') {
   app.use(morgan('dev'));
 }
 
-// ─── HEALTH CHECK ──────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────
+// HEALTH CHECK
+// ─────────────────────────────────────────────────────────────
+
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(), 
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
     service: 'HRMS API v2',
-    env: process.env.NODE_ENV 
+    env: process.env.NODE_ENV,
   });
 });
 
-// ─── TEST NOTIFICATION ROUTE (Remove in production) ─────────────────────────
-app.get('/api/test-birthday-notifications', async (req, res) => {
-  await processBirthdayNotifications();
-  res.json(new ApiResponse(200, null, 'Birthday notifications triggered manually'));
-});
 
-// ─── TEST DIRECT NOTIFICATION ──────────────────────────────────────────────
-app.get('/api/test-my-notification', verifyJWT, async (req, res) => {
-  const { sendNotification } = await import('./services/notification.service.js');
-  const employee = await (await import('./models/Employee.model.js')).Employee.findById(req.user._id);
-  
-  if (!employee?.fcmToken) {
-    return res.status(400).json(new ApiResponse(400, null, 'You have no FCM token registered'));
+// ─────────────────────────────────────────────────────────────
+// TEST ROUTES
+// ─────────────────────────────────────────────────────────────
+
+app.get('/api/test-birthday-notifications', async (req, res, next) => {
+  try {
+
+    await processBirthdayNotifications();
+
+    res.json(
+      new ApiResponse(
+        200,
+        null,
+        'Birthday notifications triggered manually'
+      )
+    );
+
+  } catch (error) {
+    next(error);
   }
-
-  const result = await sendNotification(employee.fcmToken, {
-    title: 'Test Notification 🔔',
-    body: 'If you see this, notifications are working perfectly!',
-  });
-
-  res.json(new ApiResponse(200, result, result ? 'Notification sent' : 'Notification failed (Check server logs)'));
 });
 
-// ─── API ROUTES ────────────────────────────────────────────────────────────
+app.get('/api/test-my-notification', verifyJWT, async (req, res, next) => {
+  try {
+
+    const { sendNotification } = await import('./services/notification.service.js');
+
+    const employeeModule = await import('./models/Employee.model.js');
+
+    const employee = await employeeModule.Employee.findById(req.user._id);
+
+    if (!employee?.fcmToken) {
+      return res.status(400).json(
+        new ApiResponse(
+          400,
+          null,
+          'You have no FCM token registered'
+        )
+      );
+    }
+
+    const result = await sendNotification(employee.fcmToken, {
+      title: 'Test Notification 🔔',
+      body: 'If you see this, notifications are working perfectly!',
+    });
+
+    res.json(
+      new ApiResponse(
+        200,
+        result,
+        result
+          ? 'Notification sent successfully'
+          : 'Notification failed'
+      )
+    );
+
+  } catch (error) {
+    next(error);
+  }
+});
+
+
+// ─────────────────────────────────────────────────────────────
+// API ROUTES
+// ─────────────────────────────────────────────────────────────
+
 app.use('/api/auth', authRoutes);
+
 app.use('/api/attendance', attendanceRoutes);
+
 app.use('/api/employees', employeeRoutes);
+
 app.use('/api/leaves', leaveRoutes);
+
 app.use('/api/announcements', announcementRoutes);
+
 app.use('/api/holidays', holidayRoutes);
+
 app.use('/api/v1/gurukul', gurukulRoutes);
+
 app.use('/api/payroll', payrollRoutes);
-// new apecial login functionlity
 
 app.use('/api/special-logins', specialLoginRoutes);
 
-// ─── ERROR HANDLING ────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────
+// NOT FOUND HANDLER
+// ─────────────────────────────────────────────────────────────
+
 app.use(notFoundHandler);
+
+
+// ─────────────────────────────────────────────────────────────
+// GLOBAL ERROR HANDLER
+// ─────────────────────────────────────────────────────────────
+
+app.use((err, req, res, next) => {
+
+  console.error('🔥 Global Error:', err);
+
+  // CORS Errors
+  if (err.message === 'CORS not allowed by policy') {
+    return res.status(403).json({
+      success: false,
+      message: err.message,
+    });
+  }
+
+  res.status(err.statusCode || 500).json({
+    success: false,
+    message: err.message || 'Internal Server Error',
+    stack:
+      process.env.NODE_ENV === 'development'
+        ? err.stack
+        : undefined,
+  });
+});
+
+
+// Existing Error Middleware
 app.use(errorHandler);
 
-// ─── START SERVER ──────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────
+// START SERVER
+// ─────────────────────────────────────────────────────────────
+
 const PORT = process.env.PORT || 5000;
 
-// Only start the server if we're not running on Vercel
+// Vercel automatically handles serverless deployment
 if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
-  connectDB().then(() => {
-    app.listen(PORT, () => {
-      logger.info(`🚀 Server running on port ${PORT}`);
-      initAllCronJobs();
+
+  connectDB()
+    .then(() => {
+
+      app.listen(PORT, () => {
+
+        logger.info(`🚀 Server running on port ${PORT}`);
+
+        initAllCronJobs();
+
+      });
+
+    })
+    .catch((err) => {
+
+      logger.error('❌ Failed to connect to database', err);
+
     });
-  }).catch(err => {
-    logger.error('Failed to connect to database', err);
-  });
 }
 
 export default app;
