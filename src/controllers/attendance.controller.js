@@ -439,7 +439,9 @@ export const getAttendanceByDate = asyncHandler(async (req, res) => {
 
       location: {
         latitude: record.checkInLatitude || null,
-        longitude: record.checkInLongitude || null
+        longitude: record.checkInLongitude || null,
+        checkOutLatitude: record.checkOutLatitude || null,
+        checkOutLongitude: record.checkOutLongitude || null
       }
     };
   });

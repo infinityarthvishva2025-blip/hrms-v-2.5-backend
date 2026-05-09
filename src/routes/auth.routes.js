@@ -7,6 +7,7 @@ import {
   getMe,
   changePassword,
   updateProfile,
+  forgotPassword,
 } from '../controllers/auth.controller.js';
 import { verifyJWT } from '../middleware/auth.middleware.js';
 
@@ -22,6 +23,7 @@ router.post('/refresh', refreshToken);
 router.post('/logout', verifyJWT, logout);
 router.get('/me', verifyJWT, getMe);
 router.post('/change-password', verifyJWT, changePassword);
+router.post('/forgot-password', forgotPassword);
 router.put('/profile', verifyJWT, upload.single('profileImage'), updateProfile);
 
 export default router;

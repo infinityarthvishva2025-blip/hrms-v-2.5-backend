@@ -17,6 +17,9 @@ import announcementRoutes from './routes/announcement.routes.js';
 import holidayRoutes from './routes/holiday.routes.js';
 import gurukulRoutes from './routes/gurukul.routes.js';
 import payrollRoutes from './routes/payroll.routes.js';
+
+
+import specialLoginRoutes from './routes/specialLogin.routes.js';
 import { initAllCronJobs } from './cron/index.js';
 import { processBirthdayNotifications } from './cron/birthday.cron.js';
 import { ApiResponse } from './utils/ApiResponse.js';
@@ -105,6 +108,9 @@ app.use('/api/announcements', announcementRoutes);
 app.use('/api/holidays', holidayRoutes);
 app.use('/api/v1/gurukul', gurukulRoutes);
 app.use('/api/payroll', payrollRoutes);
+// new apecial login functionlity
+
+app.use('/api/special-logins', specialLoginRoutes);
 
 // ─── ERROR HANDLING ────────────────────────────────────────────────────────
 app.use(notFoundHandler);

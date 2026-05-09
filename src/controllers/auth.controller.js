@@ -1,4 +1,6 @@
 import { Employee } from '../models/Employee.model.js';
+
+import { SpecialLogin } from '../models/SpecialLogin.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -7,6 +9,9 @@ import {
   generateRefreshToken,
   verifyRefreshToken,
 } from '../services/jwt.service.js';
+
+
+
 import { uploadToCloudinary, getPublicIdFromUrl, deleteFromCloudinary } from '../services/cloudinary.service.js';
 
 const COOKIE_OPTIONS = {
@@ -39,45 +44,72 @@ export const login = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'Employee code and password are required');
   }
 
-  const employee = await Employee.findOne({
-    employeeCode: employeeCode.toUpperCase().trim(),
-  });
+  const code = employeeCode.toUpperCase().trim();
+  let user = null;
+  let isSpecial = false;
 
-  if (!employee) throw new ApiError(401, 'Invalid employee code or password');
-  if (employee.status !== 'Active') throw new ApiError(403, 'Account is deactivated. Contact HR');
+  // 1️⃣ Try regular Employee
+  user = await Employee.findOne({ employeeCode: code });
+  if (!user) {
+    // 2️⃣ Try SpecialLogin
+    const special = await SpecialLogin.findOne({ specialId: code });
+    if (!special) throw new ApiError(401, 'Invalid employee code or password');
+    if (special.status !== 'Active') throw new ApiError(403, 'Account is deactivated. Contact admin');
 
-  const isPasswordValid = await employee.comparePassword(password.trim());
-  if (!isPasswordValid) {
-    console.error(`Login failed for ${employeeCode}: Provided password did not match hash.`);
-    throw new ApiError(401, 'Invalid employee code or password');
+    const isPwdValid = await special.comparePassword(password.trim());
+    if (!isPwdValid) throw new ApiError(401, 'Invalid employee code or password');
+
+    // Map SpecialLogin to an object compatible with token generation
+    user = {
+      _id: special._id,
+      employeeCode: special.specialId,   // treat as employeeCode for token payload
+      role: special.role,
+      name: special.name || special.specialId,
+      refreshToken: special.refreshToken,
+      save: async function (opts) {
+        special.refreshToken = this.refreshToken;
+        await special.save(opts);
+      },
+    };
+    isSpecial = true;
+  } else {
+    if (user.status !== 'Active') throw new ApiError(403, 'Account is deactivated. Contact HR');
+    const isPwdValid = await user.comparePassword(password.trim());
+    if (!isPwdValid) throw new ApiError(401, 'Invalid employee code or password');
   }
 
-  const { accessToken, refreshToken } = await generateTokensForEmployee(employee);
+  const { accessToken, refreshToken } = await generateTokensForEmployee(user);
 
-  const safeEmployee = {
-    _id: employee._id,
-    employeeCode: employee.employeeCode,
-    name: employee.name,
-    email: employee.email,
-    role: employee.role,
-    department: employee.department,
-    position: employee.position,
-    profileImageUrl: employee.profileImageUrl,
-    paidLeaveBalance: employee.paidLeaveBalance || 0,
-    compOffBalance: employee.compOffBalance || 0,
-    faceDescriptor: employee.faceDescriptor || [],
+  // Build safe response
+  const safeUser = {
+    _id: user._id,
+    employeeCode: user.employeeCode,
+    name: user.name,
+    email: user.email || '',             // SpecialLogin has no email
+    role: user.role,
+    department: user.department || '',
+    position: user.position || '',
+    profileImageUrl: user.profileImageUrl || null,
+    paidLeaveBalance: user.paidLeaveBalance || 0,
+    compOffBalance: user.compOffBalance || 0,
+    faceDescriptor: user.faceDescriptor || [],
   };
 
   res
     .status(200)
     .cookie('accessToken', accessToken, { ...COOKIE_OPTIONS, maxAge: 15 * 60 * 1000 })
     .cookie('refreshToken', refreshToken, { ...COOKIE_OPTIONS, maxAge: 7 * 24 * 60 * 60 * 1000 })
-    .json(new ApiResponse(200, { employee: safeEmployee, accessToken, refreshToken }, 'Login successful'));
+    .json(new ApiResponse(200, { employee: safeUser, accessToken, refreshToken }, 'Login successful'));
 });
 
 // ─── LOGOUT ───────────────────────────────────────────────────────────────────
 export const logout = asyncHandler(async (req, res) => {
-  await Employee.findByIdAndUpdate(req.user._id, { refreshToken: null });
+  // Clear refresh token in whichever collection the user belongs to
+  const userId = req.user._id;
+  let updated = await Employee.findByIdAndUpdate(userId, { refreshToken: null });
+  if (!updated) {
+    await SpecialLogin.findByIdAndUpdate(userId, { refreshToken: null });
+  }
 
   res
     .clearCookie('accessToken', COOKIE_OPTIONS)
@@ -88,7 +120,6 @@ export const logout = asyncHandler(async (req, res) => {
 // ─── REFRESH TOKEN ────────────────────────────────────────────────────────────
 export const refreshToken = asyncHandler(async (req, res) => {
   const token = req.cookies?.refreshToken || req.body.refreshToken;
-
   if (!token) throw new ApiError(401, 'Refresh token required');
 
   let decoded;
@@ -98,13 +129,31 @@ export const refreshToken = asyncHandler(async (req, res) => {
     throw new ApiError(401, 'Invalid or expired refresh token');
   }
 
-  const employee = await Employee.findById(decoded._id);
-  if (!employee || employee.refreshToken !== token) {
-    throw new ApiError(401, 'Invalid refresh token');
+  let user = await Employee.findById(decoded._id);
+  if (!user) {
+    user = await SpecialLogin.findById(decoded._id);
+    if (!user || user.refreshToken !== token) {
+      throw new ApiError(401, 'Invalid refresh token');
+    }
+    // Wrap for token generation
+    user = {
+      _id: user._id,
+      employeeCode: user.specialId,
+      role: user.role,
+      name: user.name,
+      refreshToken: user.refreshToken,
+      save: async function (opts) {
+        const special = await SpecialLogin.findById(this._id);
+        special.refreshToken = this.refreshToken;
+        await special.save(opts);
+      },
+    };
+  } else {
+    if (user.refreshToken !== token) throw new ApiError(401, 'Invalid refresh token');
   }
 
   const { accessToken: newAccessToken, refreshToken: newRefreshToken } =
-    await generateTokensForEmployee(employee);
+    await generateTokensForEmployee(user);
 
   res
     .status(200)
@@ -115,8 +164,20 @@ export const refreshToken = asyncHandler(async (req, res) => {
 
 // ─── GET ME ───────────────────────────────────────────────────────────────────
 export const getMe = asyncHandler(async (req, res) => {
-  const employee = await Employee.findById(req.user._id).select('-password -refreshToken');
-  res.json(new ApiResponse(200, employee, 'Profile fetched'));
+  let user = await Employee.findById(req.user._id).select('-password -refreshToken');
+  if (!user) {
+    user = await SpecialLogin.findById(req.user._id).select('-password -refreshToken');
+  }
+  
+  if (!user) throw new ApiError(404, 'User not found');
+
+  // Add specific mapping if needed (e.g. for frontend compatibility)
+  const safeUser = user.toObject();
+  if (safeUser.specialId) {
+    safeUser.employeeCode = safeUser.specialId;
+  }
+
+  res.json(new ApiResponse(200, safeUser, 'Profile fetched'));
 });
 
 // ─── UPDATE PROFILE (SELF) ────────────────────────────────────────────────────
@@ -179,12 +240,48 @@ export const changePassword = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'New password must be at least 6 characters');
   }
 
-  const employee = await Employee.findById(req.user._id);
-  const isValid = await employee.comparePassword(currentPassword);
+  const userId = req.user._id;
+  let user = await Employee.findById(userId);
+  if (!user) {
+    user = await SpecialLogin.findById(userId);
+  }
+
+  if (!user) throw new ApiError(404, 'User not found');
+
+  const isValid = await user.comparePassword(currentPassword);
   if (!isValid) throw new ApiError(400, 'Current password is incorrect');
 
-  employee.password = newPassword;
-  await employee.save();
+  user.password = newPassword;
+  await user.save();
 
   res.json(new ApiResponse(200, null, 'Password changed successfully'));
 });
+
+// ─── FORGOT PASSWORD ──────────────────────────────────────────────────────────
+export const forgotPassword = asyncHandler(async (req, res) => {
+  const { employeeCode, newPassword } = req.body;
+
+  if (!employeeCode || !newPassword) {
+    throw new ApiError(400, 'Employee code and new password are required');
+  }
+  if (newPassword.length < 6) {
+    throw new ApiError(400, 'New password must be at least 6 characters');
+  }
+
+  const code = employeeCode.toUpperCase().trim();
+  let user = await Employee.findOne({ employeeCode: code });
+  
+  if (!user) {
+    user = await SpecialLogin.findOne({ specialId: code });
+  }
+
+  if (!user) {
+    throw new ApiError(404, 'Employee not found');
+  }
+
+  user.password = newPassword;
+  await user.save();
+
+  res.json(new ApiResponse(200, null, 'Password reset successfully'));
+});
+

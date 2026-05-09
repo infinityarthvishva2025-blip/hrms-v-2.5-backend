@@ -1,5 +1,6 @@
 import { verifyAccessToken } from '../services/jwt.service.js';
 import { Employee } from '../models/Employee.model.js';
+import { SpecialLogin } from '../models/SpecialLogin.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
@@ -17,10 +18,17 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
     throw new ApiError(401, 'Unauthorized: Invalid or expired token');
   }
 
-  const employee = await Employee.findById(decoded._id).select('-password -refreshToken');
-  if (!employee) throw new ApiError(401, 'Unauthorized: Employee not found');
-  if (employee.status !== 'Active') throw new ApiError(403, 'Account is deactivated');
+  // 1. Try regular Employee
+  let user = await Employee.findById(decoded._id).select('-password -refreshToken');
+  
+  // 2. Try SpecialLogin if not found in Employees
+  if (!user) {
+    user = await SpecialLogin.findById(decoded._id).select('-password -refreshToken');
+  }
 
-  req.user = employee;
+  if (!user) throw new ApiError(401, 'Unauthorized: User not found');
+  if (user.status !== 'Active') throw new ApiError(403, 'Account is deactivated');
+
+  req.user = user;
   next();
 });

@@ -71,6 +71,6 @@ router.patch(
 router.patch('/:id/cancel', cancelLeave);
 
 // ── ACCRUAL (Admin/HR only) ──
-router.post('/accrue-monthly', authorizeRoles('SuperUser', 'HR', 'Director'), accrueMonthlyLeaves);
+router.post('/accrue-monthly', authorizeRoles('SuperUser', 'HR', 'GM', 'VP', 'Director'), accrueMonthlyLeaves);
 
 export default router;

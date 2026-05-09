@@ -14,7 +14,7 @@ const router = express.Router();
 router.use(verifyJWT);
 
 // ── ADMIN / HR ONLY ──
-router.post('/generate-all', authorizeRoles('SuperUser', 'HR', 'Director'), generateAllPayroll);
+router.post('/generate-all', authorizeRoles(...MANAGEMENT_ROLES), generateAllPayroll);
 
 // ── ALL ROLES (With Internal Auth Checks) ──
 router.post('/generate', authorizeRoles(...ALL_ROLES), generatePayroll);
