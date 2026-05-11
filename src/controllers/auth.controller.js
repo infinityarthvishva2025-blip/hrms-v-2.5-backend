@@ -264,24 +264,37 @@ export const forgotPassword = asyncHandler(async (req, res) => {
   if (!employeeCode || !newPassword) {
     throw new ApiError(400, 'Employee code and new password are required');
   }
+  
   if (newPassword.length < 6) {
     throw new ApiError(400, 'New password must be at least 6 characters');
   }
 
   const code = employeeCode.toUpperCase().trim();
-  let user = await Employee.findOne({ employeeCode: code });
   
+  // Find in both collections
+  let user = await Employee.findOne({ employeeCode: code });
+  let isSpecial = false;
+
   if (!user) {
     user = await SpecialLogin.findOne({ specialId: code });
+    isSpecial = true;
   }
 
   if (!user) {
-    throw new ApiError(404, 'Employee not found');
+    throw new ApiError(404, 'Account with this employee code does not exist');
   }
 
+  // Check if account is active before allowing reset
+  if (user.status !== 'Active') {
+    throw new ApiError(403, `Account is ${user.status.toLowerCase()}. Please contact HR/Admin.`);
+  }
+
+  // Update password
   user.password = newPassword;
   await user.save();
 
-  res.json(new ApiResponse(200, null, 'Password reset successfully'));
+  res.status(200).json(
+    new ApiResponse(200, null, 'Your password has been successfully reset. You can now sign in.')
+  );
 });
 

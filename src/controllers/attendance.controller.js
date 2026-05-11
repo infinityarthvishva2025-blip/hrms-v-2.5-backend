@@ -7,7 +7,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { isWithinOffice } from '../services/geo.service.js';
 import { config } from '../config/index.js';
 
-// Helper: get start-of-day in local time
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
 const startOfDay = (date = new Date()) => {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
@@ -17,6 +17,12 @@ const startOfDay = (date = new Date()) => {
 const endOfDay = (date = new Date()) => {
   const d = new Date(date);
   d.setHours(23, 59, 59, 999);
+  return d;
+};
+
+const startOfMonth = (date = new Date()) => {
+  const d = new Date(date.getFullYear(), date.getMonth(), 1);
+  d.setHours(0, 0, 0, 0);
   return d;
 };
 
@@ -302,15 +308,37 @@ export const getMySummary = asyncHandler(async (req, res) => {
   const employee = req.user;
   const { from, to } = req.query;
 
-  const start = from ? startOfDay(new Date(from)) : startOfDay(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  // Use local-safe date boundaries
+  const start = from ? startOfDay(new Date(from)) : startOfMonth(new Date());
   const end = to ? endOfDay(new Date(to)) : endOfDay(new Date());
 
-  const records = await Attendance.find({
+  // 1. Fetch user's own records
+  const myRecords = await Attendance.find({
     employeeCode: employee.employeeCode,
     date: { $gte: start, $lte: end },
-  }).sort({ date: -1 });
+  }).sort({ date: -1 }).lean();
 
-  // ── Build daily summary ──
+  // 2. Fetch shared reports (records of others where this user is a participant)
+  const sharedRecords = await Attendance.find({
+    reportParticipants: employee._id,
+    date: { $gte: start, $lte: end },
+    employeeCode: { $ne: employee.employeeCode }
+  }).populate('employeeId', 'name employeeCode profileImageUrl').lean();
+
+  // Build maps for O(1) lookup
+  const myRecordsMap = new Map();
+  myRecords.forEach(r => {
+    const dStr = r.date.toISOString().split('T')[0];
+    myRecordsMap.set(dStr, r);
+  });
+
+  const sharedRecordsMap = new Map();
+  sharedRecords.forEach(r => {
+    const dStr = r.date.toISOString().split('T')[0];
+    if (!sharedRecordsMap.has(dStr)) sharedRecordsMap.set(dStr, []);
+    sharedRecordsMap.get(dStr).push(r);
+  });
+
   const summary = {
     present: 0,
     absent: 0,
@@ -324,31 +352,48 @@ export const getMySummary = asyncHandler(async (req, res) => {
 
   while (current <= end) {
     const dateStr = current.toISOString().split('T')[0];
-    const record = records.find((r) => r.date.toISOString().split('T')[0] === dateStr);
-    const dow = current.getDay();
+    const myRecord = myRecordsMap.get(dateStr);
+    const daySharedReports = sharedRecordsMap.get(dateStr) || [];
 
-    if (dow === 0) {
-      // Sunday = Week Off
-      dailyList.push({ date: new Date(current), status: 'WO', isWeekOff: true });
+    const dow = current.getDay(); // 0 = Sunday
+    const isSunday = dow === 0;
+
+    const dayData = {
+      date: new Date(current),
+      myAttendance: myRecord || null,
+      sharedReports: daySharedReports,
+      status: 'A',
+      isWeekOff: isSunday,
+    };
+
+    if (isSunday) {
+      dayData.status = 'WO';
       summary.weekOff++;
-    } else if (record) {
-      if (record.isLate) summary.late++;
-      if (record.inTime) summary.present++;
-      summary.totalHours += record.totalHours || 0;
-      dailyList.push(record);
-    } else {
-      // No record = Absent
-      dailyList.push({ date: new Date(current), status: 'A', isAbsent: true });
+    }
+
+    if (myRecord) {
+      dayData.status = myRecord.status || 'P';
+      if (myRecord.isLate) summary.late++;
+      if (myRecord.inTime) summary.present++;
+      summary.totalHours += myRecord.totalHours || 0;
+    } else if (!isSunday) {
+      // Check if it's a holiday (optional: would need holiday check here for accuracy)
       summary.absent++;
     }
 
+    dailyList.push(dayData);
     current.setDate(current.getDate() + 1);
   }
+
+  // Sort daily list by date descending
+  dailyList.sort((a, b) => new Date(b.date) - new Date(a.date));
 
   res.json(
     new ApiResponse(200, { summary, records: dailyList }, 'Attendance summary fetched')
   );
 });
+
+
 
 
 // --------------------------------- employee attendance detail for the selected date
