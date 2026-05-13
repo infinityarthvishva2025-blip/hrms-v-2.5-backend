@@ -12,6 +12,7 @@ import {
   updateFaceDescriptor,
   getUpcomingBirthdays,
   updateFcmToken,
+  exportEmployeesToExcel,
 } from '../controllers/employee.controller.js';
 import { verifyJWT } from '../middleware/auth.middleware.js';
 import { authorizeRoles, CAN_CREATE_EMPLOYEE, CAN_EDIT_EMPLOYEE } from '../middleware/role.middleware.js';
@@ -38,6 +39,7 @@ router.use(verifyJWT);
 router.get('/next-code', getNextEmployeeCode);
 router.get('/departments', getDepartments);
 router.get('/management', getManagementEmployees);
+router.get('/export/excel', authorizeRoles(...CAN_CREATE_EMPLOYEE), exportEmployeesToExcel);
 router.get('/', authorizeRoles(...CAN_CREATE_EMPLOYEE, 'Manager'), getAllEmployees);
 router.get('/:id', getEmployeeById);
 router.post('/', authorizeRoles(...CAN_CREATE_EMPLOYEE), documentFields, createEmployee);

@@ -4,6 +4,7 @@ import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { uploadToCloudinary } from '../services/cloudinary.service.js';
 import { CAN_CREATE_EMPLOYEE, CAN_EDIT_EMPLOYEE } from '../middleware/role.middleware.js';
+import XLSX from 'xlsx';
 
 // ─── GET ALL EMPLOYEES ────────────────────────────────────────────────────────
 export const getAllEmployees = asyncHandler(async (req, res) => {
@@ -30,7 +31,7 @@ export const getAllEmployees = asyncHandler(async (req, res) => {
   const [employees, total] = await Promise.all([
     Employee.find(query)
       .select('-password -refreshToken')
-      .sort({ createdAt: -1 })
+      .sort({ employeeCode: 1 })
       .skip(skip)
       .limit(Number(limit)),
     Employee.countDocuments(query),
@@ -53,7 +54,7 @@ export const getManagementEmployees = asyncHandler(async (req, res) => {
   const employees = await Employee.find({ 
     role: { $in: roles },
     status: 'Active' 
-  }).select('name employeeCode role');
+  }).select('name employeeCode role').sort({ employeeCode: 1 });
 
   res.json(new ApiResponse(200, employees, 'Management employees fetched'));
 });
@@ -388,4 +389,111 @@ export const updateFcmToken = asyncHandler(async (req, res) => {
   await employee.save({ validateBeforeSave: false });
 
   res.json(new ApiResponse(200, null, 'FCM token updated successfully'));
+});
+
+// ─── EXPORT EMPLOYEES TO EXCEL ──────────────────────────────────────────────
+export const exportEmployeesToExcel = asyncHandler(async (req, res) => {
+  const { search, status, department, role } = req.query;
+  const query = {};
+
+  // Managers can only export their direct reports
+  if (req.user.role === 'Manager') {
+    query.managerIds = req.user._id;
+  }
+
+  if (status) query.status = status;
+  if (department) query.department = { $regex: department, $options: 'i' };
+  if (role) query.role = role;
+  if (search) {
+    query.$or = [
+      { name: { $regex: search, $options: 'i' } },
+      { employeeCode: { $regex: search, $options: 'i' } },
+      { email: { $regex: search, $options: 'i' } },
+    ];
+  }
+
+  const employees = await Employee.find(query)
+    .select('-password -refreshToken -faceDescriptor')
+    .sort({ employeeCode: 1 });
+
+  // Map data to Excel rows
+  const data = employees.map(emp => ({
+    'Employee Code': emp.employeeCode,
+    'Full Name': emp.name,
+    'Email Address': emp.email,
+    'Mobile Number': emp.mobileNumber,
+    'Alternate Mobile': emp.alternateMobileNumber || '—',
+    'Gender': emp.gender || '—',
+    'Date of Birth': emp.dateOfBirth ? new Date(emp.dateOfBirth).toLocaleDateString('en-IN') : '—',
+    'Marital Status': emp.maritalStatus || '—',
+    'Father\'s Name': emp.fatherName || '—',
+    'Mother\'s Name': emp.motherName || '—',
+    'Joining Date': emp.joiningDate ? new Date(emp.joiningDate).toLocaleDateString('en-IN') : '—',
+    'Department': emp.department || '—',
+    'Position': emp.position || '—',
+    'Role': emp.role,
+    'Salary': emp.salary || 0,
+    'Status': emp.status,
+    'Current Address': emp.currentAddress || '—',
+    'Permanent Address': emp.permanentAddress || '—',
+    'Aadhaar Number': emp.aadhaarNumber || '—',
+    'PAN Number': emp.panNumber || '—',
+    'Account Holder': emp.accountHolderName || '—',
+    'Bank Name': emp.bankName || '—',
+    'Account Number': emp.accountNumber || '—',
+    'IFSC Code': emp.ifsc || '—',
+    'Branch': emp.branch || '—',
+    'Experience Type': emp.experienceType || '—',
+    'Total Experience': emp.totalExperienceYears ? `${emp.totalExperienceYears} years` : '—',
+    'Emergency Contact': emp.emergencyContactName || '—',
+    'Emergency Mobile': emp.emergencyContactMobile || '—',
+    'Blood Group': emp.bloodGroup || '—',
+  }));
+
+  // Create Workbook
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(data);
+
+  // Set column widths
+  const colWidths = [
+    { wch: 15 }, // Code
+    { wch: 25 }, // Name
+    { wch: 30 }, // Email
+    { wch: 15 }, // Mobile
+    { wch: 15 }, // Alt Mobile
+    { wch: 10 }, // Gender
+    { wch: 15 }, // DOB
+    { wch: 15 }, // Marital
+    { wch: 25 }, // Father
+    { wch: 25 }, // Mother
+    { wch: 15 }, // Joining
+    { wch: 20 }, // Dept
+    { wch: 20 }, // Position
+    { wch: 12 }, // Role
+    { wch: 12 }, // Salary
+    { wch: 10 }, // Status
+    { wch: 40 }, // Address
+    { wch: 40 }, // Perm Address
+    { wch: 18 }, // Aadhaar
+    { wch: 15 }, // PAN
+    { wch: 25 }, // Acc Holder
+    { wch: 20 }, // Bank
+    { wch: 20 }, // Acc No
+    { wch: 15 }, // IFSC
+    { wch: 15 }, // Branch
+    { wch: 15 }, // Exp Type
+    { wch: 15 }, // Exp Years
+    { wch: 25 }, // Emg Name
+    { wch: 15 }, // Emg Mobile
+    { wch: 12 }, // Blood Group
+  ];
+  ws['!cols'] = colWidths;
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Employees');
+
+  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', 'attachment; filename=Employee_Records.xlsx');
+  res.send(buffer);
 });

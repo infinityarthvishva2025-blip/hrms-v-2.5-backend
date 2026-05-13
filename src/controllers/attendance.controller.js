@@ -435,6 +435,7 @@ export const getAttendanceByDate = asyncHandler(async (req, res) => {
   const totalEmployees = await Employee.countDocuments(employeeFilter);
 
   const employees = await Employee.find(employeeFilter)
+    .sort({ employeeCode: 1 })
     .skip(skip)
     .limit(limitNum)
     .lean();

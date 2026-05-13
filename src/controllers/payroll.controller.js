@@ -257,7 +257,7 @@ export const getPayrollList = asyncHandler(async (req, res) => {
   const [payrolls, total] = await Promise.all([
     Payroll.find(query)
       .populate('employeeId', 'name employeeCode department position')
-      .sort({ createdAt: -1 })
+      .sort({ employeeCode: 1 })
       .skip(skip)
       .limit(limitNum),
     Payroll.countDocuments(query)

@@ -4,7 +4,7 @@ import mongoose from 'mongoose';
 import { Employee } from '../models/Employee.model.js';
 import { logger } from '../utils/logger.js';
 
-const MONGO_URI = process.env.MONGO_URI || 'your_connection_string';
+const MONGO_URI = "mongodb+srv://infinityarthvishva2025_db_user:infinity123@cluster0.k05tmwk.mongodb.net/hrms_live_3" ||  process.env.MONGO_URI || 'your_connection_string';
 
 async function cleanupPaidLeaveData() {
   try {
@@ -20,8 +20,8 @@ async function cleanupPaidLeaveData() {
         },
         $pull: {
           leaveBalanceHistory: {
-            type: 'Accrual',
             leaveType: 'Paid',
+            type: { $in: ['Accrual', 'CarryOver'] },
           },
         },
       }

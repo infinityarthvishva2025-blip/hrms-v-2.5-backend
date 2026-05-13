@@ -2,132 +2,271 @@ import cron from 'node-cron';
 import { Employee } from '../models/Employee.model.js';
 import { logger } from '../utils/logger.js';
 
+// ─── CONSTANTS ───────────────────────────────────────────────────────────────
+// The first month paid leave accrual is active (April 2026 → month index 3)
+const SYSTEM_START_YEAR  = 2026;
+const SYSTEM_START_MONTH = 3; // 0-indexed: April = 3
+
 /**
- * Initialize Leave Cron Jobs
+ * Initialize Leave Cron Jobs.
+ * - Runs a catch-up pass immediately on startup so missed months are credited.
+ * - Schedules a recurring job on the 1st of every month at midnight.
  */
 export const initLeaveCronJobs = async () => {
-  // Run once on startup to catch up any missed accruals for the current month
-  await processMonthlyLeaveAccrual();
+  logger.info('🚀 Initializing leave cron jobs...');
 
-  // Schedule to run at 12:00 AM on the 1st of every month
+  // Immediate catch-up run on server start
+  await processMonthlyLeaveAccrual({ triggeredBy: 'startup' });
+
+  // Scheduled: 00:00 on the 1st of every month
   cron.schedule('0 0 1 * *', async () => {
-    logger.info('🗓️ Running scheduled monthly leave accrual...');
-    await processMonthlyLeaveAccrual();
+    logger.info('🗓️ Running scheduled monthly leave accrual (1st of month)...');
+    await processMonthlyLeaveAccrual({ triggeredBy: 'scheduled-cron' });
   });
 
-  logger.info('🚀 Leave cron jobs initialized and scheduled');
+  logger.info('✅ Leave cron jobs initialized and scheduled (runs on 1st of each month at 00:00)');
 };
 
 /**
- * Process Monthly Leave Accrual and Year-End Carry Forward
- * Rules:
- * 1. Applicable from April 1, 2026.
- * 2. Employee must have completed 6 months from joining date.
- * 3. Accrual happens on the 1st of the month.
- * 4. Full carry forward happens on May 1st.
+ * Build a canonical string key for a month — used for idempotent dedup.
+ * @param {number} year  Full year (e.g. 2026)
+ * @param {number} month 0-indexed month (0 = Jan … 11 = Dec)
+ * @returns {string} e.g. "2026-04"
  */
-export const processMonthlyLeaveAccrual = async () => {
+const monthKey = (year, month) =>
+  `${year}-${String(month + 1).padStart(2, '0')}`;
+
+/**
+ * Return human-readable month name for remarks.
+ * @param {number} month 0-indexed
+ */
+const monthName = (month) =>
+  new Date(2000, month, 1).toLocaleString('default', { month: 'long' });
+
+/**
+ * Get the Set of month keys already credited, derived from leaveBalanceHistory.
+ * This is the secondary dedup guard — immune to lastLeaveAccrualDate corruption.
+ * @param {Array} history  emp.leaveBalanceHistory
+ * @returns {Set<string>}
+ */
+const getCreditedMonthKeys = (history = []) => {
+  const keys = new Set();
+  for (const entry of history) {
+    if (entry.type === 'Accrual' && entry.leaveType === 'Paid' && entry.accrualMonthKey) {
+      keys.add(entry.accrualMonthKey);
+    }
+  }
+  return keys;
+};
+
+/**
+ * Core accrual processor.
+ *
+ * Strategy:
+ * 1. Build the list of months that SHOULD have been credited, starting from
+ *    the employee's eligibility month (max of: DOJ+6 months, April 2026)
+ *    up to and including the CURRENT month.
+ * 2. For each such month, check if it was already credited (idempotent).
+ * 3. Credit any missing months in sequence, updating balance step-by-step.
+ *
+ * This makes the function fully idempotent — safe to rerun on server restart,
+ * missed cron, or manual trigger.
+ *
+ * @param {{ triggeredBy?: string }} [options]
+ */
+export const processMonthlyLeaveAccrual = async ({ triggeredBy = 'manual' } = {}) => {
+  const runId = Date.now(); // unique ID per run for log tracing
+  logger.info(`[LeaveAccrual#${runId}] ▶ Starting — triggered by: ${triggeredBy}`);
+
   try {
     const now = new Date();
-    const currentMonth = now.getMonth(); // 0-11
-    const currentYear = now.getFullYear();
-    
-    // ─── SYSTEM START DATE RULE (1 April 2026) ───
-    const systemStartDate = new Date(2026, 3, 1); // April 1, 2026
-    if (now < systemStartDate) {
-      logger.info('⏳ System start date for paid leaves (April 1, 2026) not reached yet. Skipping...');
+    const todayYear  = now.getFullYear();
+    const todayMonth = now.getMonth(); // 0-indexed
+
+    // Guard: do nothing before the system start date
+    if (
+      todayYear < SYSTEM_START_YEAR ||
+      (todayYear === SYSTEM_START_YEAR && todayMonth < SYSTEM_START_MONTH)
+    ) {
+      logger.info(`[LeaveAccrual#${runId}] ⏳ System start (April 2026) not yet reached. Skipping.`);
       return;
     }
 
-    const isMayFirst = currentMonth === 4 && now.getDate() === 1;
+    const employees = await Employee.find({ status: 'Active' }).select(
+      'employeeCode joiningDate paidLeaveBalance lastLeaveAccrualDate leaveBalanceHistory'
+    );
 
-    logger.info(`🗓️ Processing leaves for ${now.toDateString()}...`);
+    logger.info(`[LeaveAccrual#${runId}] 👥 Found ${employees.length} active employee(s).`);
 
-    const employees = await Employee.find({ status: 'Active' });
-    let creditedCount = 0;
-    let carryForwardCount = 0;
-    let skippedCount = 0;
+    let totalCredited      = 0;
+    let totalSkipped       = 0;
+    let totalAlreadyDone   = 0;
+    let totalErrors        = 0;
 
     for (const emp of employees) {
       try {
-        // ─── 6-MONTH RULE CHECK ───
+        // ── 1. Validate joining date ─────────────────────────────────────────
         if (!emp.joiningDate) {
-          skippedCount++;
-          continue;
-        }
-        
-        const joiningDate = new Date(emp.joiningDate);
-        const eligibilityDate = new Date(joiningDate);
-        eligibilityDate.setMonth(eligibilityDate.getMonth() + 6);
-        
-        // Final Eligibility Date is whichever is later: (Joining + 6 months) OR (April 1, 2026)
-        const finalEligibilityDate = eligibilityDate > systemStartDate ? eligibilityDate : systemStartDate;
-
-        // If today is before they become eligible, skip
-        if (now < finalEligibilityDate) {
-          skippedCount++;
+          logger.warn(`[LeaveAccrual#${runId}] ⚠️  ${emp.employeeCode}: No joining date — skipped.`);
+          totalSkipped++;
           continue;
         }
 
-        let updated = false;
-        const historyEntries = [];
+        const doj = new Date(emp.joiningDate);
 
-        // 1. Monthly Accrual (Check if already accrued for THIS month/year)
-        const lastAccrual = emp.lastLeaveAccrualDate;
-        const alreadyAccrued = lastAccrual && 
-          lastAccrual.getMonth() === currentMonth && 
-          lastAccrual.getFullYear() === currentYear;
+        // ── 2. Compute eligibility start month ───────────────────────────────
+        // DOJ + 6 months, then take the later of that vs. system start (April 2026)
+        const eligDate = new Date(doj);
+        eligDate.setMonth(eligDate.getMonth() + 6);
 
-        if (!alreadyAccrued) {
-          const prevBalance = emp.paidLeaveBalance || 0;
-          const newBalance = prevBalance + 1;
-          
-          emp.paidLeaveBalance = newBalance;
-          emp.lastLeaveAccrualDate = now;
-          
-          historyEntries.push({
-            type: 'Accrual',
-            leaveType: 'Paid',
-            amount: 1,
-            previousBalance: prevBalance,
-            newBalance: newBalance,
-            remarks: `Monthly accrual for ${now.toLocaleString('default', { month: 'long' })} ${currentYear}`,
-            timestamp: now
-          });
-          
-          creditedCount++;
-          updated = true;
+        let eligYear  = eligDate.getFullYear();
+        let eligMonth = eligDate.getMonth(); // 0-indexed
+
+        // Clamp to system start
+        if (
+          eligYear < SYSTEM_START_YEAR ||
+          (eligYear === SYSTEM_START_YEAR && eligMonth < SYSTEM_START_MONTH)
+        ) {
+          eligYear  = SYSTEM_START_YEAR;
+          eligMonth = SYSTEM_START_MONTH;
         }
 
-        // 2. May 1st Carry Forward / New Financial Year Start
-        if (isMayFirst) {
-          historyEntries.push({
-            type: 'CarryOver',
-            leaveType: 'Paid',
-            amount: emp.paidLeaveBalance, 
-            previousBalance: emp.paidLeaveBalance,
-            newBalance: emp.paidLeaveBalance,
-            remarks: `Financial Year ${currentYear-1}-${currentYear} ends. Carrying forward balance to the new year.`,
-            timestamp: now
-          });
-          carryForwardCount++;
-          updated = true;
+        // If eligibility is still in the future, skip
+        if (
+          eligYear > todayYear ||
+          (eligYear === todayYear && eligMonth > todayMonth)
+        ) {
+          logger.info(
+            `[LeaveAccrual#${runId}] ⏭  ${emp.employeeCode}: ` +
+            `Not yet eligible until ${monthKey(eligYear, eligMonth)}. Skipped.`
+          );
+          totalSkipped++;
+          continue;
         }
 
-        if (updated) {
-          if (historyEntries.length > 0) {
-            if (!emp.leaveBalanceHistory) emp.leaveBalanceHistory = [];
-            emp.leaveBalanceHistory.push(...historyEntries);
+        // ── 3. Build list of months to credit ────────────────────────────────
+        // All months from eligibility month up to (and including) the current month.
+        const monthsToProcess = [];
+        let mYear  = eligYear;
+        let mMonth = eligMonth;
+        while (
+          mYear < todayYear ||
+          (mYear === todayYear && mMonth <= todayMonth)
+        ) {
+          monthsToProcess.push({ year: mYear, month: mMonth });
+          mMonth++;
+          if (mMonth > 11) { mMonth = 0; mYear++; }
+        }
+
+        // ── 4. Determine already-credited months (idempotent guard) ───────────
+        const creditedKeys = getCreditedMonthKeys(emp.leaveBalanceHistory);
+
+        // Secondary guard: also trust lastLeaveAccrualDate if history keys are absent
+        // (handles employees created before accrualMonthKey was introduced)
+        if (emp.lastLeaveAccrualDate) {
+          const lad = new Date(emp.lastLeaveAccrualDate);
+          const ladKey = monthKey(lad.getFullYear(), lad.getMonth());
+          // If this key is not in history yet, add it to the already-credited set
+          if (!creditedKeys.has(ladKey)) {
+            creditedKeys.add(ladKey);
           }
+        }
+
+        // ── 5. Credit missing months ─────────────────────────────────────────
+        let empBalance       = emp.paidLeaveBalance || 0;
+        let empUpdated       = false;
+        const newHistEntries = [];
+
+        for (const { year, month } of monthsToProcess) {
+          const key = monthKey(year, month);
+
+          if (creditedKeys.has(key)) {
+            logger.info(
+              `[LeaveAccrual#${runId}] ✔  ${emp.employeeCode}: ${key} already credited — skipping.`
+            );
+            totalAlreadyDone++;
+            continue;
+          }
+
+          // Credit 1 paid leave for this month
+          const prevBalance = empBalance;
+          empBalance += 1;
+
+          newHistEntries.push({
+            type:            'Accrual',
+            leaveType:       'Paid',
+            amount:          1,
+            previousBalance: prevBalance,
+            newBalance:      empBalance,
+            accrualMonthKey: key, // ← indexed key used for idempotent dedup
+            remarks:         `Monthly paid leave accrual for ${monthName(month)} ${year}`,
+            timestamp:       now,
+          });
+
+          creditedKeys.add(key); // prevent double-credit within same run
+          empUpdated = true;
+          totalCredited++;
+
+          logger.info(
+            `[LeaveAccrual#${runId}] ✅ ${emp.employeeCode}: ` +
+            `Credited 1 PL for ${key}. Balance: ${prevBalance} → ${empBalance}`
+          );
+        }
+
+        // ── 6. May 1st Carry-Forward audit entry ─────────────────────────────
+        const isMayFirst = todayMonth === 4 && now.getDate() === 1;
+        const carryFwdKey = `carryover-${todayYear}`;
+        const alreadyCarriedForward = (emp.leaveBalanceHistory || []).some(
+          (h) => h.type === 'CarryOver' && h.accrualMonthKey === carryFwdKey
+        );
+
+        if (isMayFirst && !alreadyCarriedForward) {
+          newHistEntries.push({
+            type:            'CarryOver',
+            leaveType:       'Paid',
+            amount:          empBalance,
+            previousBalance: empBalance,
+            newBalance:      empBalance,
+            accrualMonthKey: carryFwdKey,
+            remarks:         `FY ${todayYear - 1}-${todayYear} end. Carrying forward balance of ${empBalance} day(s).`,
+            timestamp:       now,
+          });
+          empUpdated = true;
+          logger.info(`[LeaveAccrual#${runId}] 📦 ${emp.employeeCode}: CarryOver audit entry added.`);
+        }
+
+        // ── 7. Persist changes ───────────────────────────────────────────────
+        if (empUpdated) {
+          emp.paidLeaveBalance   = empBalance;
+          emp.lastLeaveAccrualDate = now;
+
+          if (!emp.leaveBalanceHistory) emp.leaveBalanceHistory = [];
+          emp.leaveBalanceHistory.push(...newHistEntries);
+
           await emp.save();
+          logger.info(
+            `[LeaveAccrual#${runId}] 💾 ${emp.employeeCode}: Saved. Final PL balance: ${empBalance}`
+          );
+        } else {
+          logger.info(
+            `[LeaveAccrual#${runId}] ➖ ${emp.employeeCode}: Nothing new to credit.`
+          );
         }
       } catch (empError) {
-        logger.error(`❌ Error processing employee ${emp.employeeCode || emp._id}:`, empError.message);
+        totalErrors++;
+        logger.error(
+          `[LeaveAccrual#${runId}] ❌ Error processing ${emp.employeeCode || emp._id}: ${empError.message}`,
+          empError
+        );
       }
     }
 
-    logger.info(`✅ Leave processing finished. Credited: ${creditedCount}, CarryForward: ${carryForwardCount}, Skipped: ${skippedCount}`);
+    logger.info(
+      `[LeaveAccrual#${runId}] ✅ Done. ` +
+      `Credited: ${totalCredited} | Already done: ${totalAlreadyDone} | ` +
+      `Skipped: ${totalSkipped} | Errors: ${totalErrors}`
+    );
   } catch (error) {
-    logger.error('❌ Fatal error in processMonthlyLeaveAccrual:', error.message);
+    logger.error(`[LeaveAccrual#${runId}] ❌ Fatal error: ${error.message}`, error);
   }
 };

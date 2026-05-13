@@ -126,6 +126,8 @@ const employeeSchema = new mongoose.Schema(
         newBalance: { type: Number, required: true },
         remarks: { type: String },
         timestamp: { type: Date, default: Date.now },
+        // Canonical month key (e.g. "2026-04") — used by leave cron for idempotent dedup
+        accrualMonthKey: { type: String },
         earnedDate: { type: Date }, // For Comp-Off tracking
         expiryDate: { type: Date }, // For Comp-Off tracking
         isUsed: { type: Boolean, default: false }, // For Comp-Off tracking

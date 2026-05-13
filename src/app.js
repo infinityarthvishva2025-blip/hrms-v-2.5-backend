@@ -18,6 +18,7 @@ import holidayRoutes from './routes/holiday.routes.js';
 import gurukulRoutes from './routes/gurukul.routes.js';
 import payrollRoutes from './routes/payroll.routes.js';
 import specialLoginRoutes from './routes/specialLogin.routes.js';
+import dashboardRoutes from './routes/dashboard.routes.js';
 
 import { initAllCronJobs } from './cron/index.js';
 import { processBirthdayNotifications } from './cron/birthday.cron.js';
@@ -208,6 +209,8 @@ app.use('/api/v1/gurukul', gurukulRoutes);
 app.use('/api/payroll', payrollRoutes);
 
 app.use('/api/special-logins', specialLoginRoutes);
+
+app.use('/api/dashboard', dashboardRoutes);
 
 
 // ─────────────────────────────────────────────────────────────

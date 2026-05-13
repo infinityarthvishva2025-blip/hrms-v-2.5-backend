@@ -641,9 +641,9 @@ export const getLeaveStats = asyncHandler(async (req, res) => {
 // ─── MONTHLY LEAVE ACCRUAL & SETTLEMENT ──────────────────────────────────────
 
 export const accrueMonthlyLeaves = asyncHandler(async (req, res) => {
-  // Manual trigger for testing
- // await processMonthlyLeaveAccrual();
-  res.status(200).json(new ApiResponse(200, null, 'Monthly leaves accrued successfully'));
+  // Manual trigger for testing/debugging — callable by SuperUser/HR
+  await processMonthlyLeaveAccrual({ triggeredBy: 'manual-api' });
+  res.status(200).json(new ApiResponse(200, null, 'Monthly leave accrual completed successfully'));
 });
 
 export const getLeaveBalanceHistory = asyncHandler(async (req, res) => {
