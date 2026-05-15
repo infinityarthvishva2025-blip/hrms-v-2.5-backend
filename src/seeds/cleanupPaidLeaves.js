@@ -4,7 +4,7 @@ import mongoose from 'mongoose';
 import { Employee } from '../models/Employee.model.js';
 import { logger } from '../utils/logger.js';
 
-const MONGO_URI = "mongodb+srv://infinityarthvishva2025_db_user:infinity123@cluster0.k05tmwk.mongodb.net/hrms_live_3" ||  process.env.MONGO_URI || 'your_connection_string';
+const MONGO_URI = "mongodb+srv://infinityarthvishva2025_db_user:infinity@cluster0.uqn4y0m.mongodb.net/hrms_live_2_0";
 
 async function cleanupPaidLeaveData() {
   try {
@@ -21,7 +21,7 @@ async function cleanupPaidLeaveData() {
         $pull: {
           leaveBalanceHistory: {
             leaveType: 'Paid',
-            type: { $in: ['Accrual', 'CarryOver'] },
+            type: { $in: ['Accrual', 'CarryOver', 'Adjustment', 'Reset'] },
           },
         },
       }
@@ -30,7 +30,7 @@ async function cleanupPaidLeaveData() {
     logger.info(`✅ Cleanup completed. Modified ${result.modifiedCount} employee(s).`);
     logger.info(`   - paidLeaveBalance → 0`);
     logger.info(`   - lastLeaveAccrualDate → null`);
-    logger.info(`   - Removed all Paid 'Accrual' history entries.`);
+    logger.info(`   - Removed all Paid leave history entries.`);
   } catch (error) {
     logger.error('❌ Cleanup failed:', error.message);
   } finally {

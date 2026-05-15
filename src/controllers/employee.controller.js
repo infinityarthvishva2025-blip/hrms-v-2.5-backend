@@ -332,6 +332,13 @@ export const getDepartments = asyncHandler(async (req, res) => {
   res.json(new ApiResponse(200, departments.sort(), 'Departments fetched'));
 });
 
+export const getPositions = asyncHandler(async (req, res) => {
+  const positions = await Employee.distinct('position', {
+    position: { $ne: null, $ne: '' },
+  });
+  res.json(new ApiResponse(200, positions.sort(), 'Positions fetched'));
+});
+
 // ─── GET UPCOMING BIRTHDAYS (Today & Tomorrow) ───────────────────────────────
 export const getUpcomingBirthdays = asyncHandler(async (req, res) => {
   const today = new Date();

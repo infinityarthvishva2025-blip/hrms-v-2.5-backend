@@ -91,13 +91,38 @@ function buildInitialApprovalState(applicantRole) {
   }
 }
 
+import { Holiday } from '../models/Holiday.model.js';
+import mongoose from 'mongoose';
+
 /**
- * Calculate total days between two dates (inclusive).
+ * Calculate total days between two dates, excluding Sundays and Holidays.
  */
-function calcTotalDays(start, end, halfDay) {
+async function calcActualLeaveDays(start, end, halfDay) {
   if (halfDay) return 0.5;
-  const ms = new Date(end).getTime() - new Date(start).getTime();
-  return Math.round(ms / (1000 * 60 * 60 * 24)) + 1;
+  
+  let count = 0;
+  let current = new Date(start);
+  current.setHours(0, 0, 0, 0);
+  const finish = new Date(end);
+  finish.setHours(0, 0, 0, 0);
+
+  // Fetch all holidays in range at once
+  const holidays = await Holiday.find({
+    date: { $gte: current, $lte: finish }
+  });
+  const holidayDates = new Set(holidays.map(h => h.date.toDateString()));
+
+  while (current <= finish) {
+    const dayOfWeek = current.getDay();
+    const isSunday = dayOfWeek === 0;
+    const isHoliday = holidayDates.has(current.toDateString());
+
+    if (!isSunday && !isHoliday) {
+      count++;
+    }
+    current.setDate(current.getDate() + 1);
+  }
+  return count;
 }
 
 /**
@@ -133,9 +158,10 @@ export const applyLeave = asyncHandler(async (req, res) => {
 
   if (end < start) throw new ApiError(400, 'endDate cannot be before startDate');
 
-  const totalDays = calcTotalDays(start, end, halfDay);
-  
-  // ── BALANCE VALIDATION ──
+  const totalDays = await calcActualLeaveDays(start, end, halfDay);
+  if (totalDays === 0) throw new ApiError(400, 'Selected date range consists only of Sundays or Holidays');
+
+  // ── BALANCE VALIDATION & DEDUCTION ──
   const employee = await Employee.findById(req.user._id);
   if (leaveType === 'Paid') {
     if ((employee.paidLeaveBalance || 0) < totalDays) {
@@ -147,46 +173,71 @@ export const applyLeave = asyncHandler(async (req, res) => {
     }
   }
 
-  const approvalState = buildInitialApprovalState(req.user.role);
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  const leave = await Leave.create({
-    employeeId: req.user._id,
-    leaveType,
-    startDate: start,
-    endDate: end,
-    totalDays,
-    halfDay,
-    halfDayPeriod: halfDay ? halfDayPeriod : '',
-    reason,
-    ...approvalState,
-    actionHistory: [
-      {
-        action: 'Applied',
-        byEmployeeId: req.user._id,
-        byName: req.user.name,
-        byRole: req.user.role,
-        remarks: reason,
-        timestamp: new Date(),
-      },
-    ],
-  });
+  try {
+    const approvalState = buildInitialApprovalState(req.user.role);
 
-  // Auto-complete for Director/SuperUser
-  if (approvalState.overallStatus === 'Approved') {
-    leave.actionHistory.push({
-      action: 'Approved',
-      byEmployeeId: req.user._id,
-      byName: req.user.name,
-      byRole: req.user.role,
-      remarks: 'Auto-approved for senior role',
-      timestamp: new Date(),
-    });
-    await leave.save();
+    // 1. Create Leave Record
+    const leave = await Leave.create([{
+      employeeId: req.user._id,
+      leaveType,
+      startDate: start,
+      endDate: end,
+      totalDays,
+      halfDay,
+      halfDayPeriod: halfDay ? halfDayPeriod : '',
+      reason,
+      ...approvalState,
+      actionHistory: [
+        {
+          action: 'Applied',
+          byEmployeeId: req.user._id,
+          byName: req.user.name,
+          byRole: req.user.role,
+          remarks: reason,
+          timestamp: new Date(),
+        },
+      ],
+    }], { session });
+
+    // 2. Deduct Balance Immediately (Tentative)
+    if (leaveType === 'Paid' || leaveType === 'CompOff') {
+      const update = leaveType === 'Paid' 
+        ? { $inc: { paidLeaveBalance: -totalDays } } 
+        : { $inc: { compOffBalance: -totalDays } };
+      
+      const updatedEmp = await Employee.findByIdAndUpdate(req.user._id, {
+        ...update,
+        $push: {
+          leaveBalanceHistory: {
+            type: 'Deduction',
+            leaveType,
+            amount: totalDays,
+            previousBalance: leaveType === 'Paid' ? employee.paidLeaveBalance : employee.compOffBalance,
+            newBalance: (leaveType === 'Paid' ? employee.paidLeaveBalance : employee.compOffBalance) - totalDays,
+            remarks: `Leave applied: ${start.toDateString()} to ${end.toDateString()} (Pending approval)`,
+            timestamp: new Date(),
+          }
+        }
+      }, { session, new: true });
+
+      if (updatedEmp.paidLeaveBalance < 0 || updatedEmp.compOffBalance < 0) {
+         throw new ApiError(400, 'Insufficient balance for this request');
+      }
+    }
+
+    await session.commitTransaction();
+
+    const populated = await Leave.findById(leave[0]._id).populate('employeeId', 'name employeeCode department role');
+    res.status(201).json(new ApiResponse(201, populated, 'Leave applied successfully. Balance deducted.'));
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
   }
-
-  const populated = await Leave.findById(leave._id).populate('employeeId', 'name employeeCode department role');
-
-  res.status(201).json(new ApiResponse(201, populated, 'Leave applied successfully'));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -425,52 +476,23 @@ export const approveLeave = asyncHandler(async (req, res) => {
       leave.overallStatus = 'Approved';
       leave.currentApproverRole = 'Completed';
 
-      // ── DEDUCT BALANCE ──
-      const employee = await Employee.findById(leave.employeeId);
-      if (employee) {
-        let prevBalance = 0;
-        let newBalance = 0;
-        let deducted = false;
-
-        if (leave.leaveType === 'Paid') {
-          prevBalance = employee.paidLeaveBalance || 0;
-          employee.paidLeaveBalance = Math.max(0, prevBalance - leave.totalDays);
-          newBalance = employee.paidLeaveBalance;
-          deducted = true;
-        } else if (leave.leaveType === 'CompOff') {
-          prevBalance = employee.compOffBalance || 0;
-          employee.compOffBalance = Math.max(0, prevBalance - leave.totalDays);
-          newBalance = employee.compOffBalance;
-          deducted = true;
-
-          // Mark specific accruals as used (FIFO)
+      // ── BALANCE ALREADY DEDUCTED DURING APPLICATION ──
+      // If Comp-Off, we still want to mark history entries as used (FIFO)
+      if (leave.leaveType === 'CompOff') {
+        const employee = await Employee.findById(leave.employeeId);
+        if (employee && employee.leaveBalanceHistory) {
           let daysToMark = leave.totalDays;
-          if (employee.leaveBalanceHistory) {
-            for (let i = 0; i < employee.leaveBalanceHistory.length; i++) {
-              const entry = employee.leaveBalanceHistory[i];
-              if (entry.leaveType === 'CompOff' && entry.type === 'Accrual' && !entry.isUsed) {
-                entry.isUsed = true;
-                entry.usedDate = new Date();
-                daysToMark -= entry.amount;
-                if (daysToMark <= 0) break;
-              }
+          for (let i = 0; i < employee.leaveBalanceHistory.length; i++) {
+            const entry = employee.leaveBalanceHistory[i];
+            if (entry.leaveType === 'CompOff' && entry.type === 'Accrual' && !entry.isUsed) {
+              entry.isUsed = true;
+              entry.usedDate = new Date();
+              daysToMark -= entry.amount;
+              if (daysToMark <= 0) break;
             }
           }
+          await employee.save();
         }
-
-        if (deducted) {
-          if (!employee.leaveBalanceHistory) employee.leaveBalanceHistory = [];
-          employee.leaveBalanceHistory.push({
-            type: 'Deduction',
-            leaveType: leave.leaveType,
-            amount: leave.totalDays,
-            previousBalance: prevBalance,
-            newBalance: newBalance,
-            remarks: `Leave approved: ${leave.startDate.toDateString()} to ${leave.endDate.toDateString()}`,
-            timestamp: new Date(),
-          });
-        }
-        await employee.save();
       }
     } else {
       leave.currentApproverRole = nextRole;
@@ -537,22 +559,60 @@ export const rejectLeave = asyncHandler(async (req, res) => {
       break;
   }
 
-  leave.overallStatus = 'Rejected';
-  leave.currentApproverRole = 'Completed';
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  leave.actionHistory.push({
-    action: 'Rejected',
-    byEmployeeId: req.user._id,
-    byName: req.user.name,
-    byRole: req.user.role,
-    remarks,
-    timestamp: new Date(),
-  });
+  try {
+    leave.overallStatus = 'Rejected';
+    leave.currentApproverRole = 'Completed';
 
-  await leave.save();
+    leave.actionHistory.push({
+      action: 'Rejected',
+      byEmployeeId: req.user._id,
+      byName: req.user.name,
+      byRole: req.user.role,
+      remarks,
+      timestamp: new Date(),
+    });
 
-  const updated = await Leave.findById(leave._id).populate('employeeId', 'name employeeCode department role');
-  res.json(new ApiResponse(200, updated, 'Leave rejected'));
+    // ── REFUND BALANCE ──
+    if (leave.leaveType === 'Paid' || leave.leaveType === 'CompOff') {
+      const employee = await Employee.findById(leave.employeeId);
+      if (employee) {
+        const update = leave.leaveType === 'Paid' 
+          ? { $inc: { paidLeaveBalance: leave.totalDays } } 
+          : { $inc: { compOffBalance: leave.totalDays } };
+        
+        const prevBalance = leave.leaveType === 'Paid' ? employee.paidLeaveBalance : employee.compOffBalance;
+        
+        await Employee.findByIdAndUpdate(employee._id, {
+          ...update,
+          $push: {
+            leaveBalanceHistory: {
+              type: 'Adjustment',
+              leaveType: leave.leaveType,
+              amount: leave.totalDays,
+              previousBalance: prevBalance,
+              newBalance: prevBalance + leave.totalDays,
+              remarks: `Leave rejected: Refund for ${leave.startDate.toDateString()}`,
+              timestamp: new Date(),
+            }
+          }
+        }, { session });
+      }
+    }
+
+    await leave.save({ session });
+    await session.commitTransaction();
+
+    const updated = await Leave.findById(leave._id).populate('employeeId', 'name employeeCode department role');
+    res.json(new ApiResponse(200, updated, 'Leave rejected and balance refunded'));
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -572,23 +632,61 @@ export const cancelLeave = asyncHandler(async (req, res) => {
     throw new ApiError(400, `Cannot cancel a leave that is already ${leave.overallStatus}`);
   }
 
-  leave.overallStatus = 'Cancelled';
-  leave.cancelledBy = req.user._id;
-  leave.cancelledAt = new Date();
-  leave.cancelReason = reason;
-  leave.currentApproverRole = 'Completed';
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  leave.actionHistory.push({
-    action: 'Cancelled',
-    byEmployeeId: req.user._id,
-    byName: req.user.name,
-    byRole: req.user.role,
-    remarks: reason,
-    timestamp: new Date(),
-  });
+  try {
+    leave.overallStatus = 'Cancelled';
+    leave.cancelledBy = req.user._id;
+    leave.cancelledAt = new Date();
+    leave.cancelReason = reason;
+    leave.currentApproverRole = 'Completed';
 
-  await leave.save();
-  res.json(new ApiResponse(200, leave, 'Leave cancelled'));
+    leave.actionHistory.push({
+      action: 'Cancelled',
+      byEmployeeId: req.user._id,
+      byName: req.user.name,
+      byRole: req.user.role,
+      remarks: reason,
+      timestamp: new Date(),
+    });
+
+    // ── REFUND BALANCE ──
+    if (leave.leaveType === 'Paid' || leave.leaveType === 'CompOff') {
+      const employee = await Employee.findById(leave.employeeId);
+      if (employee) {
+        const update = leave.leaveType === 'Paid' 
+          ? { $inc: { paidLeaveBalance: leave.totalDays } } 
+          : { $inc: { compOffBalance: leave.totalDays } };
+        
+        const prevBalance = leave.leaveType === 'Paid' ? employee.paidLeaveBalance : employee.compOffBalance;
+
+        await Employee.findByIdAndUpdate(employee._id, {
+          ...update,
+          $push: {
+            leaveBalanceHistory: {
+              type: 'Adjustment',
+              leaveType: leave.leaveType,
+              amount: leave.totalDays,
+              previousBalance: prevBalance,
+              newBalance: prevBalance + leave.totalDays,
+              remarks: `Leave cancelled: Refund for ${leave.startDate.toDateString()}`,
+              timestamp: new Date(),
+            }
+          }
+        }, { session });
+      }
+    }
+
+    await leave.save({ session });
+    await session.commitTransaction();
+    res.json(new ApiResponse(200, leave, 'Leave cancelled and balance refunded'));
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -694,4 +792,40 @@ export const getCompOffBalanceHistory = asyncHandler(async (req, res) => {
     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
   res.json(new ApiResponse(200, { history, currentBalance: employee.compOffBalance }, 'Comp-Off balance history fetched'));
+});
+
+/**
+ * Manually adjust leave balance (Admin/HR only)
+ */
+export const adjustLeaveBalance = asyncHandler(async (req, res) => {
+  const { employeeId, leaveType, amount, remarks } = req.body;
+
+  if (!employeeId || !leaveType || amount === undefined) {
+    throw new ApiError(400, 'employeeId, leaveType, and amount are required');
+  }
+
+  const employee = await Employee.findById(employeeId);
+  if (!employee) throw new ApiError(404, 'Employee not found');
+
+  const prevBalance = leaveType === 'Paid' ? employee.paidLeaveBalance : employee.compOffBalance;
+  const newBalance = prevBalance + Number(amount);
+
+  const update = leaveType === 'Paid' 
+    ? { paidLeaveBalance: newBalance } 
+    : { compOffBalance: newBalance };
+
+  employee.set(update);
+  employee.leaveBalanceHistory.push({
+    type: 'Adjustment',
+    leaveType,
+    amount: Math.abs(amount),
+    previousBalance: prevBalance,
+    newBalance: newBalance,
+    remarks: remarks || 'Administrative adjustment',
+    timestamp: new Date(),
+  });
+
+  await employee.save();
+
+  res.json(new ApiResponse(200, employee, `Balance adjusted successfully. New ${leaveType} balance: ${newBalance}`));
 });

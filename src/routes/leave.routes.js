@@ -12,6 +12,7 @@ import {
   accrueMonthlyLeaves,
   getLeaveBalanceHistory,
   getCompOffBalanceHistory,
+  adjustLeaveBalance,
 } from '../controllers/leave.controller.js';
 import { verifyJWT } from '../middleware/auth.middleware.js';
 import { authorizeRoles } from '../middleware/role.middleware.js';
@@ -70,7 +71,8 @@ router.patch(
 // ── CANCEL (owner or admin) ──
 router.patch('/:id/cancel', cancelLeave);
 
-// ── ACCRUAL (Admin/HR only) ──
+// ── ACCRUAL & ADJUSTMENT (Admin/HR only) ──
 router.post('/accrue-monthly', authorizeRoles('SuperUser', 'HR', 'GM', 'VP', 'Director'), accrueMonthlyLeaves);
+router.post('/adjust-balance', authorizeRoles('SuperUser', 'HR'), adjustLeaveBalance);
 
 export default router;

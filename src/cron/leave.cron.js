@@ -157,7 +157,7 @@ export const processMonthlyLeaveAccrual = async ({ triggeredBy = 'manual' } = {}
           mMonth++;
           if (mMonth > 11) { mMonth = 0; mYear++; }
         }
-
+        
         // ── 4. Determine already-credited months (idempotent guard) ───────────
         const creditedKeys = getCreditedMonthKeys(emp.leaveBalanceHistory);
 
@@ -181,10 +181,7 @@ export const processMonthlyLeaveAccrual = async ({ triggeredBy = 'manual' } = {}
           const key = monthKey(year, month);
 
           if (creditedKeys.has(key)) {
-            logger.info(
-              `[LeaveAccrual#${runId}] ✔  ${emp.employeeCode}: ${key} already credited — skipping.`
-            );
-            totalAlreadyDone++;
+            // Already credited
             continue;
           }
 
@@ -198,41 +195,44 @@ export const processMonthlyLeaveAccrual = async ({ triggeredBy = 'manual' } = {}
             amount:          1,
             previousBalance: prevBalance,
             newBalance:      empBalance,
-            accrualMonthKey: key, // ← indexed key used for idempotent dedup
+            accrualMonthKey: key, 
             remarks:         `Monthly paid leave accrual for ${monthName(month)} ${year}`,
             timestamp:       now,
           });
 
-          creditedKeys.add(key); // prevent double-credit within same run
+          creditedKeys.add(key); 
           empUpdated = true;
           totalCredited++;
 
-          logger.info(
-            `[LeaveAccrual#${runId}] ✅ ${emp.employeeCode}: ` +
-            `Credited 1 PL for ${key}. Balance: ${prevBalance} → ${empBalance}`
-          );
+          logger.info(`[LeaveAccrual#${runId}] ✅ ${emp.employeeCode}: Credited 1 PL for ${key}.`);
         }
 
-        // ── 6. May 1st Carry-Forward audit entry ─────────────────────────────
-        const isMayFirst = todayMonth === 4 && now.getDate() === 1;
-        const carryFwdKey = `carryover-${todayYear}`;
-        const alreadyCarriedForward = (emp.leaveBalanceHistory || []).some(
-          (h) => h.type === 'CarryOver' && h.accrualMonthKey === carryFwdKey
-        );
+        // ── 6. Idempotent Carry-Forward (Financial Year End: April 1st) ──────
+        // Strategy: For every year AFTER system start up to current year,
+        // if we have passed April 1st of that year, ensure a CarryOver entry exists.
+        for (let y = SYSTEM_START_YEAR + 1; y <= todayYear; y++) {
+          const carryFwdDate = new Date(Date.UTC(y, 3, 1)); // April 1st UTC
+          if (now >= carryFwdDate) {
+            const carryFwdKey = `carryover-${y}`;
+            const alreadyDone = (emp.leaveBalanceHistory || []).some(
+              (h) => h.type === 'CarryOver' && h.accrualMonthKey === carryFwdKey
+            );
 
-        if (isMayFirst && !alreadyCarriedForward) {
-          newHistEntries.push({
-            type:            'CarryOver',
-            leaveType:       'Paid',
-            amount:          empBalance,
-            previousBalance: empBalance,
-            newBalance:      empBalance,
-            accrualMonthKey: carryFwdKey,
-            remarks:         `FY ${todayYear - 1}-${todayYear} end. Carrying forward balance of ${empBalance} day(s).`,
-            timestamp:       now,
-          });
-          empUpdated = true;
-          logger.info(`[LeaveAccrual#${runId}] 📦 ${emp.employeeCode}: CarryOver audit entry added.`);
+            if (!alreadyDone) {
+              newHistEntries.push({
+                type:            'CarryOver',
+                leaveType:       'Paid',
+                amount:          empBalance,
+                previousBalance: empBalance,
+                newBalance:      empBalance,
+                accrualMonthKey: carryFwdKey,
+                remarks:         `FY ${y - 1}-${y} end carry-forward. Balance: ${empBalance}`,
+                timestamp:       now,
+              });
+              empUpdated = true;
+              logger.info(`[LeaveAccrual#${runId}] 📦 ${emp.employeeCode}: Catch-up CarryOver for FY ${y-1}-${y}`);
+            }
+          }
         }
 
         // ── 7. Persist changes ───────────────────────────────────────────────

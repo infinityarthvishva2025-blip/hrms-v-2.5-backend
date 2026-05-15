@@ -8,6 +8,7 @@ import {
   updateEmployee,
   toggleEmployeeStatus,
   getDepartments,
+  getPositions,
   getManagementEmployees,
   updateFaceDescriptor,
   getUpcomingBirthdays,
@@ -38,6 +39,7 @@ router.use(verifyJWT);
 
 router.get('/next-code', getNextEmployeeCode);
 router.get('/departments', getDepartments);
+router.get('/positions', getPositions);
 router.get('/management', getManagementEmployees);
 router.get('/export/excel', authorizeRoles(...CAN_CREATE_EMPLOYEE), exportEmployeesToExcel);
 router.get('/', authorizeRoles(...CAN_CREATE_EMPLOYEE, 'Manager'), getAllEmployees);
