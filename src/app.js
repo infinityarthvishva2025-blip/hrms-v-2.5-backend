@@ -20,6 +20,7 @@ import payrollRoutes from './routes/payroll.routes.js';
 import specialLoginRoutes from './routes/specialLogin.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import resignationRoutes from './routes/resignation.routes.js';
+import complaintRoutes from './routes/complaint.routes.js';
 
 import { initAllCronJobs } from './cron/index.js';
 import { processBirthdayNotifications } from './cron/birthday.cron.js';
@@ -214,7 +215,7 @@ app.use('/api/special-logins', specialLoginRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 
 app.use('/api/resignations', resignationRoutes);
-
+app.use('/api/complaints', complaintRoutes);
 
 // ─────────────────────────────────────────────────────────────
 // NOT FOUND HANDLER

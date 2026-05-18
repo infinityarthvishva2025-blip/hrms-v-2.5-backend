@@ -12,8 +12,8 @@ import { connectDB } from '../config/db.js';
 import { logger } from '../utils/logger.js';
 
 // ──────────────────────────── CONFIG ────────────────────────────
-const TARGET_EMPLOYEE_CODE = 'IA00022';
-const COMP_OFF_DATE_STRING = '2026-04-19';   // YYYY-MM-DD
+const TARGET_EMPLOYEE_CODE = 'IA00005';
+const COMP_OFF_DATE_STRING = '2026-04-12';   // YYYY-MM-DD
 const COMP_OFF_AMOUNT = 1;                   // one day
 const EXPIRY_DAYS = 90;                      // expires after 90 days
 

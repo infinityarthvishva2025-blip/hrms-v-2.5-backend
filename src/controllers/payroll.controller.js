@@ -5,6 +5,7 @@ import { Holiday } from '../models/Holiday.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { evaluateWorkingMinutes } from '../utils/attendanceHelper.js';
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
@@ -79,24 +80,45 @@ const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDate, targ
   const halfDayDetails = [];
   const absentDayDetails = [];
 
+  const getUTCDateStr = (date) => {
+    const d = new Date(date);
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  };
+
   let current = new Date(fromDate);
   while (current <= toDate) {
-    const dStr = current.toDateString();
-    const record = attendanceRecords.find(r => r.date.toDateString() === dStr);
-    const isSunday = current.getDay() === 0;
-    const isHolid = holidayRecords.some(h => h.date.toDateString() === dStr);
+    const dStr = getUTCDateStr(current);
+    const record = attendanceRecords.find(r => getUTCDateStr(r.date) === dStr);
+    const isSunday = current.getUTCDay() === 0; // Use UTC day since fromDate/toDate are UTC
+    const isHolid = holidayRecords.some(h => getUTCDateStr(h.date) === dStr);
 
     if (isSunday) {
       summary.weekOff++;
     } else if (isHolid) {
       summary.holiday++;
     } else if (record) {
-      if (record.status === 'P') {
-        if (record.totalHours < 4) {
-          summary.half++;
-          halfDayDetails.push({ date: new Date(current), reason: `Worked ${record.totalHours} hrs` });
-        } else {
+      if (record.status === 'P' || record.status === 'Half' || record.status === 'Coff') {
+        if (record.status === 'Coff') {
           summary.present++;
+        } else {
+          const workedMins = record.totalMinutes || Math.round((record.totalHours || 0) * 60);
+          const evalResult = evaluateWorkingMinutes(current, workedMins);
+
+          if (evalResult.isFullDay && record.status !== 'Half') {
+            summary.present++;
+          } else if (evalResult.isHalfDay || record.status === 'Half') {
+            summary.half++;
+            halfDayDetails.push({ 
+              date: new Date(current), 
+              reason: `Worked ${record.totalHours || (workedMins / 60).toFixed(2)} hrs (Required: ${evalResult.requiredFullMinutes} min, worked: ${workedMins} min)` 
+            });
+          } else {
+            summary.absent++;
+            absentDayDetails.push({ 
+              date: new Date(current), 
+              reason: `Worked ${record.totalHours || (workedMins / 60).toFixed(2)} hrs (Below half day threshold: ${evalResult.minHalfMinutes} min)` 
+            });
+          }
         }
       } else if (['Paid', 'Sick', 'Casual', 'Earned', 'CompOff', 'L'].includes(record.status)) {
         summary.paidLeave++;
@@ -108,7 +130,7 @@ const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDate, targ
       summary.absent++;
       absentDayDetails.push({ date: new Date(current), reason: 'No Check-in' });
     }
-    current = new Date(current.getTime() + 86400000);
+    current.setUTCDate(current.getUTCDate() + 1);
   }
 
   const paidDays = summary.present + (summary.half * 0.5) + summary.paidLeave + summary.weekOff + summary.holiday;
@@ -256,7 +278,7 @@ export const getPayrollList = asyncHandler(async (req, res) => {
 
   const [payrolls, total] = await Promise.all([
     Payroll.find(query)
-      .populate('employeeId', 'name employeeCode department position')
+      .populate('employeeId', 'name employeeCode department position joiningDate panNumber bankName accountNumber ifsc branch')
       .sort({ employeeCode: 1 })
       .skip(skip)
       .limit(limitNum),

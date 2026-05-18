@@ -4,7 +4,7 @@ import mongoose from 'mongoose';
 import { Employee } from '../models/Employee.model.js';
 import { logger } from '../utils/logger.js';
 
-const MONGO_URI = "mongodb+srv://infinityarthvishva2025_db_user:infinity@cluster0.uqn4y0m.mongodb.net/hrms_live_2_0";
+const MONGO_URI = "mongodb+srv://infinityarthvishva2025_db_user:infinity123@cluster0.k05tmwk.mongodb.net/hrms_live_3";
 
 async function cleanupPaidLeaveData() {
   try {

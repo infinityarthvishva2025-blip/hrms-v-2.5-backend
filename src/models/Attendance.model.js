@@ -22,10 +22,10 @@ const attendanceSchema = new mongoose.Schema(
     totalHours: { type: Number },   // in decimal (e.g., 8.5)
     totalMinutes: { type: Number },
 
-    // ── STATUS: P, A, WO, L, Coff, AUTO ──
+    // ── STATUS: P, A, WO, L, Coff, AUTO, H, Half ──
     status: {
       type: String,
-      enum: ['P', 'A', 'WO', 'L', 'Coff', 'AUTO', 'H'],
+      enum: ['P', 'A', 'WO', 'L', 'Coff', 'AUTO', 'H', 'Half'],
       default: 'P',
     },
 

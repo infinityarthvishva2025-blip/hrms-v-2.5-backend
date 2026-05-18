@@ -59,11 +59,22 @@ export const updateHoliday = asyncHandler(async (req, res) => {
 
 export const deleteHoliday = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const holiday = await Holiday.findByIdAndDelete(id);
+  const holiday = await Holiday.findById(id);
   
   if (!holiday) {
     throw new ApiError(404, 'Holiday not found');
   }
+
+  const holidayDate = holiday.date;
+  await holiday.deleteOne();
+
+  // Cleanup: Remove any attendance records that were automatically marked as 'H' for this date
+  // (Only if they don't have actual check-in data to avoid data loss)
+  await Attendance.deleteMany({
+    date: holidayDate,
+    status: 'H',
+    inTime: { $exists: false }
+  });
 
   return res.status(200).json(new ApiResponse(200, null, 'Holiday deleted successfully'));
 });

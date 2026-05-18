@@ -6,6 +6,7 @@ import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { isWithinOffice } from '../services/geo.service.js';
 import { config } from '../config/index.js';
+import { evaluateWorkingMinutes } from '../utils/attendanceHelper.js';
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 const startOfDay = (date = new Date()) => {
@@ -221,6 +222,15 @@ export const checkOut = asyncHandler(async (req, res) => {
       attendance.isCompOffCredited = true;
       attendance.status = 'Coff'; // Mark as Comp-Off day
     }
+  } else if (!isSunday && !isHoliday) {
+    const evalResult = evaluateWorkingMinutes(today, totalMinutes);
+    if (evalResult.isFullDay) {
+      attendance.status = 'P';
+    } else if (evalResult.isHalfDay) {
+      attendance.status = 'Half';
+    } else {
+      attendance.status = 'A';
+    }
   }
 
   if (latitude != null && longitude != null) {
@@ -308,9 +318,17 @@ export const getMySummary = asyncHandler(async (req, res) => {
   const employee = req.user;
   const { from, to } = req.query;
 
-  // Use local-safe date boundaries
-  const start = from ? startOfDay(new Date(from)) : startOfMonth(new Date());
-  const end = to ? endOfDay(new Date(to)) : endOfDay(new Date());
+  // Use UTC boundaries for absolute date accuracy across timezones
+  const start = from ? new Date(`${from}T00:00:00Z`) : new Date(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1, 0, 0, 0, 0);
+  const end = to ? new Date(`${to}T23:59:59Z`) : new Date();
+  
+  if (!from) {
+     // Default start of month in UTC
+     start.setUTCHours(0,0,0,0);
+  }
+  if (!to) {
+     end.setUTCHours(23,59,59,999);
+  }
 
   // 1. Fetch user's own records
   const myRecords = await Attendance.find({
@@ -318,31 +336,49 @@ export const getMySummary = asyncHandler(async (req, res) => {
     date: { $gte: start, $lte: end },
   }).sort({ date: -1 }).lean();
 
-  // 2. Fetch shared reports (records of others where this user is a participant)
+  // 2. Fetch shared reports
   const sharedRecords = await Attendance.find({
     reportParticipants: employee._id,
     date: { $gte: start, $lte: end },
     employeeCode: { $ne: employee.employeeCode }
   }).populate('employeeId', 'name employeeCode profileImageUrl').lean();
 
+  // Helper to get YYYY-MM-DD in UTC (consistent with how Holidays/Attendance dates are stored)
+  const getUTCDateStr = (date) => {
+    const d = new Date(date);
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  };
+
+  // 3. Fetch holidays in range
+  const holidayRecords = await Holiday.find({
+    date: { $gte: start, $lte: end }
+  }).lean();
+
   // Build maps for O(1) lookup
   const myRecordsMap = new Map();
   myRecords.forEach(r => {
-    const dStr = r.date.toISOString().split('T')[0];
+    const dStr = getUTCDateStr(r.date);
     myRecordsMap.set(dStr, r);
   });
 
   const sharedRecordsMap = new Map();
   sharedRecords.forEach(r => {
-    const dStr = r.date.toISOString().split('T')[0];
+    const dStr = getUTCDateStr(r.date);
     if (!sharedRecordsMap.has(dStr)) sharedRecordsMap.set(dStr, []);
     sharedRecordsMap.get(dStr).push(r);
+  });
+
+  const holidayMap = new Map();
+  holidayRecords.forEach(h => {
+    const dStr = getUTCDateStr(h.date);
+    holidayMap.set(dStr, h);
   });
 
   const summary = {
     present: 0,
     absent: 0,
     weekOff: 0,
+    holiday: 0,
     late: 0,
     totalHours: 0,
   };
@@ -351,11 +387,12 @@ export const getMySummary = asyncHandler(async (req, res) => {
   let current = new Date(start);
 
   while (current <= end) {
-    const dateStr = current.toISOString().split('T')[0];
+    const dateStr = getUTCDateStr(current);
     const myRecord = myRecordsMap.get(dateStr);
     const daySharedReports = sharedRecordsMap.get(dateStr) || [];
+    const holiday = holidayMap.get(dateStr);
 
-    const dow = current.getDay(); // 0 = Sunday
+    const dow = current.getUTCDay(); // 0 = Sunday
     const isSunday = dow === 0;
 
     const dayData = {
@@ -364,29 +401,40 @@ export const getMySummary = asyncHandler(async (req, res) => {
       sharedReports: daySharedReports,
       status: 'A',
       isWeekOff: isSunday,
+      holiday: holiday || null,
     };
 
-    if (isSunday) {
-      dayData.status = 'WO';
-      summary.weekOff++;
-    }
-
-    if (myRecord) {
+    // Priority 1: Check if there's a valid attendance record (Worked or Leave)
+    // We ignore 'A' (Absent) and 'H' (Holiday) status records as they should fall through to Sunday/Holiday checks
+    if (myRecord && (myRecord.inTime || (myRecord.status && !['A', 'H'].includes(myRecord.status)))) {
       dayData.status = myRecord.status || 'P';
       if (myRecord.isLate) summary.late++;
       if (myRecord.inTime) summary.present++;
       summary.totalHours += myRecord.totalHours || 0;
-    } else if (!isSunday) {
-      // Check if it's a holiday (optional: would need holiday check here for accuracy)
+    } 
+    // Priority 2: Check if it's a Week Off
+    else if (isSunday) {
+      dayData.status = 'WO';
+      summary.weekOff++;
+    } 
+    // Priority 3: Check if it's a Holiday
+    else if (holiday) {
+      dayData.status = 'H';
+      summary.holiday++;
+    } 
+    // Priority 4: Default to Absent
+    else {
+      dayData.status = 'A';
       summary.absent++;
     }
 
     dailyList.push(dayData);
-    current.setDate(current.getDate() + 1);
+    // Increment by 24 hours in UTC
+    current = new Date(current.getTime() + 86400000);
   }
 
-  // Sort daily list by date descending
-  dailyList.sort((a, b) => new Date(b.date) - new Date(a.date));
+  // Sort daily list by date ascending (start of month first)
+  dailyList.sort((a, b) => new Date(a.date) - new Date(b.date));
 
   res.json(
     new ApiResponse(200, { summary, records: dailyList }, 'Attendance summary fetched')
@@ -617,7 +665,17 @@ export const requestCorrection = asyncHandler(async (req, res) => {
     const workedMs = attendance.outTime - attendance.inTime;
     attendance.totalMinutes = Math.round(workedMs / 60000);
     attendance.totalHours = parseFloat((workedMs / 3600000).toFixed(2));
-    attendance.status = 'P';
+    
+    // Evaluate status dynamically
+    const evalResult = evaluateWorkingMinutes(attendance.date, attendance.totalMinutes);
+    if (evalResult.isFullDay) {
+      attendance.status = 'P';
+    } else if (evalResult.isHalfDay) {
+      attendance.status = 'Half';
+    } else {
+      attendance.status = 'A';
+    }
+    
     attendance.correctionRequested = false;
     attendance.correctionHistory.push({
       action: 'Approved',
@@ -677,8 +735,16 @@ export const approveCorrection = asyncHandler(async (req, res) => {
   attendance.totalMinutes = Math.round(workedMs / 60000);
   attendance.totalHours = parseFloat((workedMs / 3600000).toFixed(2));
 
-  // Status update logic
-  attendance.status = 'P';
+  // Evaluate status dynamically
+  const evalResult = evaluateWorkingMinutes(attendance.date, attendance.totalMinutes);
+  if (evalResult.isFullDay) {
+    attendance.status = 'P';
+  } else if (evalResult.isHalfDay) {
+    attendance.status = 'Half';
+  } else {
+    attendance.status = 'A';
+  }
+  
   attendance.correctionRequested = false;
 
   await attendance.save();

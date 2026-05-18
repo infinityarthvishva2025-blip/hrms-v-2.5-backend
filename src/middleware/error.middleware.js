@@ -6,10 +6,16 @@ export const errorHandler = (err, req, res, next) => {
   let statusCode = err.statusCode || 500;
   let message = err.message || 'Internal Server Error';
 
+  let errors = null;
+
   // Mongoose validation error
   if (err.name === 'ValidationError') {
     statusCode = 400;
-    message = Object.values(err.errors).map(e => e.message).join(', ');
+    message = 'Validation failed';
+    errors = {};
+    for (const field in err.errors) {
+      errors[field] = err.errors[field].message;
+    }
   }
 
   // Mongoose duplicate key
@@ -32,9 +38,13 @@ export const errorHandler = (err, req, res, next) => {
   logger.error(`[${statusCode}] ${message} | Path: ${req.path} | Method: ${req.method}`);
   if (err.stack && process.env.NODE_ENV === 'development') logger.debug(err.stack);
 
-  res.status(statusCode).json(
-    new ApiResponse(statusCode, null, message)
-  );
+  res.status(statusCode).json({
+    statusCode,
+    data: null,
+    message,
+    success: false,
+    ...(errors && { errors })
+  });
 };
 
 export const notFoundHandler = (req, res, next) => {
