@@ -2,6 +2,7 @@ import { Payroll } from '../models/Payroll.model.js';
 import { Attendance } from '../models/Attendance.model.js';
 import { Employee } from '../models/Employee.model.js';
 import { Holiday } from '../models/Holiday.model.js';
+import { Leave } from '../models/Leave.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -32,19 +33,27 @@ const convertNumberToWords = (amount) => {
     else { word += tens[Math.floor(tempAmount / 10)] + " "; word += words[tempAmount % 10]; }
   }
   return word.trim();
-};const calculatePT = (salary, gender, month) => {
-  // February special rule
-  if (month === 1) { // 0-indexed Feb is 1
+};
+
+/**
+ * PT is always calculated on the employee's BASE SALARY (CTC), not grossEarnings.
+ * Rules:
+ *  - February (month index 1, 0-based): flat ₹300
+ *  - Female: ₹200 if baseSalary > ₹25,000, else ₹0
+ *  - Male / Other: ₹200 if baseSalary > ₹10,000, else ₹0
+ *    (The ₹175 tier for 7,500–10,000 has been removed per updated policy)
+ */
+const calculatePT = (baseSalary, gender, month) => {
+  // February special rule (0-indexed: Jan=0, Feb=1)
+  if (month === 1) {
     return 300;
   }
 
   if (gender === 'Female') {
-    return salary > 25000 ? 200 : 0;
+    return baseSalary > 25000 ? 200 : 0;
   } else {
-    // Male
-    if (salary <= 7500) return 0;
-    if (salary <= 10000) return 175;
-    return 200;
+    // Male or Other
+    return baseSalary > 10000 ? 200 : 0;
   }
 };
 
@@ -54,17 +63,26 @@ const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDate, targ
   const employee = await Employee.findById(employeeId);
   if (!employee) return null;
 
-  // Fix: Total days in range should be inclusive (+1)
-  const totalDaysInRange = Math.round((toDate - fromDate) / (1000 * 60 * 60 * 24));
+  // Total days in range is inclusive: count every calendar day from fromDate to toDate.
+  // We add 1 because both endpoints are included (e.g. Mar 21 → Apr 20 = 31 days, not 30).
+  // toDate is set to 23:59:59 on the last day, so we floor the difference then add 1.
+  const totalDaysInRange = Math.floor((toDate - fromDate) / (1000 * 60 * 60 * 24)) + 1;
 
-  // ── FETCH ATTENDANCE & HOLIDAYS ──
-  const [attendanceRecords, holidayRecords] = await Promise.all([
+  // ── FETCH ATTENDANCE, HOLIDAYS & APPROVED LEAVES ──
+  const [attendanceRecords, holidayRecords, approvedLeaves] = await Promise.all([
     Attendance.find({
       employeeId,
       date: { $gte: fromDate, $lte: toDate }
     }),
     Holiday.find({
       date: { $gte: fromDate, $lte: toDate }
+    }),
+    // Only fetch leaves that have been fully approved
+    Leave.find({
+      employeeId,
+      overallStatus: 'Approved',
+      startDate: { $lte: toDate },
+      endDate: { $gte: fromDate }
     })
   ]);
 
@@ -121,7 +139,21 @@ const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDate, targ
           }
         }
       } else if (['Paid', 'Sick', 'Casual', 'Earned', 'CompOff', 'L'].includes(record.status)) {
-        summary.paidLeave++;
+        // Issue 5 fix: Only count as paid leave if there is a corresponding approved Leave record
+        // that covers this date. Otherwise treat it as absent (LWP).
+        const currentDateStr = getUTCDateStr(current);
+        const hasApprovedLeave = approvedLeaves.some(leave => {
+          const leaveStart = getUTCDateStr(leave.startDate);
+          const leaveEnd = getUTCDateStr(leave.endDate);
+          return currentDateStr >= leaveStart && currentDateStr <= leaveEnd;
+        });
+
+        if (hasApprovedLeave) {
+          summary.paidLeave++;
+        } else {
+          summary.absent++;
+          absentDayDetails.push({ date: new Date(current), reason: `Unapproved Leave (${record.status})` });
+        }
       } else {
         summary.absent++;
         absentDayDetails.push({ date: new Date(current), reason: `Status: ${record.status}` });
@@ -141,7 +173,11 @@ const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDate, targ
   const divisor = totalDaysInRange >= 28 ? totalDaysInRange : 30;
   const dailyRate = baseSalary / divisor;
   const grossEarnings = parseFloat((dailyRate * paidDays).toFixed(2));
-  const professionalTax = calculatePT(grossEarnings, employee.gender, toDate.getMonth());
+
+  // Issue 3 fix: PT must be calculated on baseSalary (employee CTC), NOT on grossEarnings.
+  // Using grossEarnings caused employees with high salaries who had absences to be
+  // incorrectly bucketed into lower PT tiers (e.g., ₹175 instead of ₹200).
+  const professionalTax = calculatePT(baseSalary, employee.gender, toDate.getUTCMonth());
   const netSalary = Math.max(0, grossEarnings - professionalTax);
 
   return await Payroll.findOneAndUpdate(
