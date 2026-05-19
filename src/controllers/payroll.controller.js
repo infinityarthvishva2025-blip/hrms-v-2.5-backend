@@ -59,7 +59,7 @@ const calculatePT = (baseSalary, gender, month) => {
 
 // ─── GENERATE PAYROLL (HELPER FOR SINGLE EMPLOYEE) ──────────────────────────
 
-const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDate, targetMonth, targetYear, processedBy }) => {
+export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDate, targetMonth, targetYear, processedBy }) => {
   const employee = await Employee.findById(employeeId);
   if (!employee) return null;
 
@@ -97,6 +97,7 @@ const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDate, targ
 
   const halfDayDetails = [];
   const absentDayDetails = [];
+  const presentDayDetails = [];
 
   const getUTCDateStr = (date) => {
     const d = new Date(date);
@@ -118,12 +119,20 @@ const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDate, targ
       if (record.status === 'P' || record.status === 'Half' || record.status === 'Coff') {
         if (record.status === 'Coff') {
           summary.present++;
+          presentDayDetails.push({
+            date: new Date(current),
+            reason: 'Compensatory Off (Coff)'
+          });
         } else {
           const workedMins = record.totalMinutes || Math.round((record.totalHours || 0) * 60);
           const evalResult = evaluateWorkingMinutes(current, workedMins);
 
           if (evalResult.isFullDay && record.status !== 'Half') {
             summary.present++;
+            presentDayDetails.push({
+              date: new Date(current),
+              reason: `Full Present: Worked ${(record.totalHours || workedMins / 60).toFixed(2)} hrs`
+            });
           } else if (evalResult.isHalfDay || record.status === 'Half') {
             summary.half++;
             halfDayDetails.push({ 
@@ -150,6 +159,10 @@ const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDate, targ
 
         if (hasApprovedLeave) {
           summary.paidLeave++;
+          presentDayDetails.push({
+            date: new Date(current),
+            reason: `Approved Leave (${record.status})`
+          });
         } else {
           summary.absent++;
           absentDayDetails.push({ date: new Date(current), reason: `Unapproved Leave (${record.status})` });
@@ -188,6 +201,7 @@ const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDate, targ
       fromDate, toDate,
       totalDaysInMonth: totalDaysInRange,
       presentDays: summary.present,
+      presentDayDetails,
       halfDays: summary.half,
       halfDayDetails,
       absentDays: summary.absent,

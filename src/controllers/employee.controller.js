@@ -390,7 +390,11 @@ export const updateFcmToken = asyncHandler(async (req, res) => {
   }
 
   const employee = await Employee.findById(req.user._id);
-  if (!employee) throw new ApiError(404, 'Employee not found');
+  if (!employee) {
+    // If user is a SpecialLogin (e.g., IA00117), ignore FCM token update gracefully
+    // rather than throwing an error, as they don't have an fcmToken field.
+    return res.json(new ApiResponse(200, null, 'FCM token ignored for Special Login'));
+  }
 
   employee.fcmToken = fcmToken;
   await employee.save({ validateBeforeSave: false });

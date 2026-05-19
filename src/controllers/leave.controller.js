@@ -4,6 +4,9 @@ import { processMonthlyLeaveAccrual } from '../cron/leave.cron.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { Attendance } from '../models/Attendance.model.js';
+import { Payroll } from '../models/Payroll.model.js';
+import { processSingleEmployeePayroll } from './payroll.controller.js';
 
 // ── ROLE CONSTANTS ──
 const APPROVER_ROLES = ['SuperUser', 'HR', 'GM', 'VP', 'Director', 'Manager'];
@@ -143,6 +146,84 @@ function getNextApproverRole(currentRole, leave) {
   return 'Completed';
 }
 
+/**
+ * Synchronize an approved leave request with the Attendance and Payroll modules.
+ * Creates or updates Attendance records for all days covered by the leave,
+ * and triggers recalculation/generation of any overlapping Payroll records.
+ */
+async function syncApprovedLeaveToAttendanceAndPayroll(leave, session = null) {
+  try {
+    const empId = leave.employeeId._id || leave.employeeId;
+    const employee = await Employee.findById(empId);
+    if (!employee) {
+      console.error(`syncApprovedLeaveToAttendanceAndPayroll: Employee not found for ID: ${empId}`);
+      return;
+    }
+
+    let current = new Date(leave.startDate);
+    const end = new Date(leave.endDate);
+
+    const startOfUTCDate = (date) => {
+      const d = new Date(date);
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+    };
+
+    while (current <= end) {
+      const targetDate = startOfUTCDate(current);
+
+      // Find if there is an existing attendance record for the employee on this date
+      const existing = await Attendance.findOne({
+        employeeCode: employee.employeeCode,
+        date: targetDate
+      }).session(session);
+
+      const status = leave.leaveType === 'CompOff' ? 'Coff' : 'L';
+
+      if (existing) {
+        existing.status = status;
+        existing.inTime = undefined;
+        existing.outTime = undefined;
+        existing.totalHours = 0;
+        existing.totalMinutes = 0;
+        await existing.save({ session });
+      } else {
+        await Attendance.create([{
+          employeeId: employee._id,
+          employeeCode: employee.employeeCode,
+          employeeName: employee.name,
+          date: targetDate,
+          status: status,
+          totalHours: 0,
+          totalMinutes: 0
+        }], { session });
+      }
+
+      current.setUTCDate(current.getUTCDate() + 1);
+    }
+
+    // Now, fetch all existing payroll records for this employee that overlap the leave period
+    const overlappingPayrolls = await Payroll.find({
+      employeeId: employee._id,
+      fromDate: { $lte: leave.endDate },
+      toDate: { $gte: leave.startDate }
+    }).session(session);
+
+    for (const pr of overlappingPayrolls) {
+      await processSingleEmployeePayroll({
+        employeeId: pr.employeeId,
+        fromDate: pr.fromDate,
+        toDate: pr.toDate,
+        targetMonth: pr.month,
+        targetYear: pr.year,
+        processedBy: empId
+      });
+    }
+  } catch (err) {
+    console.error('Error in syncApprovedLeaveToAttendanceAndPayroll:', err);
+    throw err;
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // APPLY FOR LEAVE
 // ─────────────────────────────────────────────────────────────────────────────
@@ -231,6 +312,11 @@ export const applyLeave = asyncHandler(async (req, res) => {
     await session.commitTransaction();
 
     const populated = await Leave.findById(leave[0]._id).populate('employeeId', 'name employeeCode department role');
+    
+    if (populated.overallStatus === 'Approved') {
+      await syncApprovedLeaveToAttendanceAndPayroll(populated);
+    }
+
     res.status(201).json(new ApiResponse(201, populated, 'Leave applied successfully. Balance deducted.'));
   } catch (error) {
     await session.abortTransaction();
@@ -513,6 +599,11 @@ export const approveLeave = asyncHandler(async (req, res) => {
   await leave.save();
 
   const updated = await Leave.findById(leave._id).populate('employeeId', 'name employeeCode department role');
+
+  if (updated.overallStatus === 'Approved') {
+    await syncApprovedLeaveToAttendanceAndPayroll(updated);
+  }
+
   res.json(new ApiResponse(200, updated, 'Leave approved successfully'));
 });
 

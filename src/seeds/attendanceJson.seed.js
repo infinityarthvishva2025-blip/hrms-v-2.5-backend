@@ -5,30 +5,29 @@
  * 
  * DESCRIPTION:
  * This script seeds/imports structured JSON-defined attendance records directly 
- * into the MongoDB database. It automatically calculates working hours, working 
- * minutes, lateness (against 09:30 AM IST shift), maps geographic check-in/out
- * points, prevents duplicate records by performing bulk upsert operations, 
- * and formats all datetime values properly under the nominal IST offset.
+ * into the MongoDB database. It performs strict validation, handles different
+ * attendance statuses (P, A, WO, L, Coff, AUTO, H, Half), enforces UTC midnight 
+ * date normalization, prevents duplicates using bulk upsert operations, and 
+ * triggers automated payroll updates to maintain complete cross-module integrity.
  *
  * EXECUTION GUIDE:
- * 1. Ensure your backend environment variables (.env) are configured properly.
- * 2. Run the script from the root project directory:
+ * 1. Configure backend environment variables (.env).
+ * 2. Run from root directory:
  *    node backend/src/seeds/attendanceJson.seed.js
- * 
- * PREREQUISITES:
- * - Active MongoDB connection.
- * - Matching employee records already pre-seeded in the 'Employee' collection.
  * 
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
+import 'dotenv/config';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
 import { Attendance } from '../models/Attendance.model.js';
 import { Employee } from '../models/Employee.model.js';
+import { Payroll } from '../models/Payroll.model.js';
 import { connectDB } from '../config/db.js';
 import { logger } from '../utils/logger.js';
+import { processSingleEmployeePayroll } from '../controllers/payroll.controller.js';
 
 // Resolve directory paths for logging/context
 const __filename = fileURLToPath(import.meta.url);
@@ -40,35 +39,67 @@ const __dirname = path.dirname(__filename);
 // ─────────────────────────────────────────────────────────────────────────────
 const ATTENDANCE_JSON_DATA = [
   {
-    employeeCode: "IA00143",
-    date: "2026-05-04",
-    inTime: "09:15:00", // Present, On time
+    employeeCode: "IA00117",
+    date: "2026-04-20",
+    status: "P",
+    inTime: "09:15:00", // On time (Shift starts at 09:30)
     outTime: "18:30:00",
     workMode: "Office",
-    todayWork: "Designed dashboard interface and added premium animations.",
-    pendingWork: "Finalize Excel download template styling integrations.",
+    todayWork: "Implemented enterprise complaint system routing layers.",
+    pendingWork: "Connect complaints dashboard to live admin channels.",
     issuesFaced: "None"
   },
-  // {
-  //   employeeCode: "IA00001",
-  //   date: "2026-05-18",
-  //   inTime: "09:45:00", // Late (shift starts at 09:30 AM IST)
-  //   outTime: "18:00:00",
-  //   workMode: "Office",
-  //   todayWork: "Configured backend API routing layers for special logins.",
-  //   pendingWork: "Connect components to mock endpoints on mobile view.",
-  //   issuesFaced: "Minor git merge conflicts resolved."
-  // },
-  // {
-  //   employeeCode: "IA00002",
-  //   date: "2026-05-18",
-  //   inTime: "10:15:00", // Late (shift starts at 09:30 AM IST)
-  //   outTime: "19:00:00",
-  //   workMode: "Office",
-  //   todayWork: "Implemented database indexing filters for attendance trends.",
-  //   pendingWork: "Perform load tests and check execution profiles.",
-  //   issuesFaced: "High CPU usage on sandbox DB investigated and indexed."
-  // }
+  {
+    employeeCode: "IA00117",
+    date: "2026-04-21",
+    status: "P",
+    inTime: "09:45:00", // Late (Shift starts at 09:30)
+    outTime: "18:15:00",
+    workMode: "Office",
+    todayWork: "Designed scroll-linked interactive header with opacity animations.",
+    pendingWork: "Integrate premium color palettes onto mobile dashboard views.",
+    issuesFaced: "None"
+  },
+  {
+    employeeCode: "IA00117",
+    date: "2026-04-22",
+    status: "Half", // Half Day
+    inTime: "09:20:00",
+    outTime: "13:50:00",
+    workMode: "Office",
+    todayWork: "Conducted review of backend payroll calculation routines.",
+    pendingWork: "Implement automated Professional Tax deductions logic.",
+    issuesFaced: "Left early due to dental checkup."
+  },
+  {
+    employeeCode: "IA00117",
+    date: "2026-04-23",
+    status: "L", // Leave
+    workMode: "Office"
+  },
+  {
+    employeeCode: "IA00117",
+    date: "2026-04-24",
+    status: "P",
+    inTime: "09:25:00",
+    outTime: "18:30:00",
+    workMode: "Office",
+    todayWork: "Finalized past date selection for comp-offs and paid leaves.",
+    pendingWork: "Perform full end-to-end integration tests on staging cluster.",
+    issuesFaced: "None"
+  },
+  {
+    employeeCode: "IA00117",
+    date: "2026-04-25",
+    status: "Coff", // Comp-Off
+    workMode: "Office"
+  },
+  {
+    employeeCode: "IA00117",
+    date: "2026-04-26",
+    status: "WO", // Week-Off (Sunday)
+    workMode: "Office"
+  }
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -79,20 +110,24 @@ const IST_OFFSET_MINUTES = 30;
 const DEFAULT_SHIFT_START_HOUR = 9;      // 09:30 AM IST shift start
 const DEFAULT_SHIFT_START_MINUTE = 30;
 
-// Requested Geolocation coordinates
+// Geolocation default coordinates
 const CHECK_IN_LAT = 18.5339786;
 const CHECK_IN_LNG = 73.8395425;
 const CHECK_OUT_LAT = 18.5339786;
 const CHECK_OUT_LNG = 73.8395425;
+
+// Valid Attendance Status enum
+const VALID_STATUSES = ['P', 'A', 'WO', 'L', 'Coff', 'AUTO', 'H', 'Half'];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TIME & DATE UTILITIES
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Parses YYYY-MM-DD string to midnight UTC Date object
+ * Parses YYYY-MM-DD string to strictly normalized UTC Midnight Date object.
+ * This guarantees consistency independent of server/local execution timezones.
  */
-const parseDate = (dateStr) => {
+const parseDateToUTC = (dateStr) => {
   if (!dateStr) return null;
   const parts = dateStr.trim().split('-');
   if (parts.length !== 3) return null;
@@ -105,8 +140,8 @@ const parseDate = (dateStr) => {
 };
 
 /**
- * Combines an IST time string (HH:MM:SS) with base midnight UTC date and
- * subtracts 5 hours 30 minutes to get the correct UTC moment.
+ * Combines an IST time string (HH:MM:SS) with base UTC date and 
+ * adjusts by Indian Standard Time offset (+5:30) to retrieve exact UTC moment.
  */
 const parseTimeOnDateIST = (timeStr, baseDate) => {
   if (!timeStr || !baseDate) return null;
@@ -131,9 +166,9 @@ const parseTimeOnDateIST = (timeStr, baseDate) => {
 };
 
 /**
- * Calculates default shift start for the date in UTC
+ * Computes standard 09:30 AM shift start point for a given date in UTC.
  */
-const getShiftStart = (baseDate) => {
+const getShiftStartUTC = (baseDate) => {
   return parseTimeOnDateIST(
     `${DEFAULT_SHIFT_START_HOUR}:${DEFAULT_SHIFT_START_MINUTE}:00`,
     baseDate
@@ -155,7 +190,7 @@ const seedAttendanceFromJson = async () => {
       logger.info('🔌 Established database connection.');
     }
 
-    // 2. Fetch active employees to map code to ObjectId & Display Names
+    // 2. Cache Active Employees
     const activeEmployees = await Employee.find({}, { _id: 1, employeeCode: 1, name: 1 }).lean();
     const employeeMap = new Map();
     activeEmployees.forEach(emp => {
@@ -163,12 +198,16 @@ const seedAttendanceFromJson = async () => {
     });
     logger.info(`👥 Successfully cached ${employeeMap.size} database employees.`);
 
-    // 3. Compile raw JSON input into valid Attendance schema structure
+    // 3. Compile and Validate JSON input
     const bulkOps = [];
+    const affectedEmployees = new Set();
+    const affectedMonths = new Set(); // Stores unique "employeeId|YYYY-MM" strings for payroll sync
+
     let processedCount = 0;
     let skippedBadDate = 0;
     let skippedNoCode = 0;
     let skippedUnknownEmp = 0;
+    let skippedBadStatus = 0;
 
     for (const record of ATTENDANCE_JSON_DATA) {
       const code = record.employeeCode ? record.employeeCode.trim().toUpperCase() : '';
@@ -178,7 +217,7 @@ const seedAttendanceFromJson = async () => {
         continue;
       }
 
-      const date = parseDate(record.date);
+      const date = parseDateToUTC(record.date);
       if (!date) {
         logger.warn(`⏭️ Skipped [${code}]: Invalid/Missing date format (${record.date}). Expected YYYY-MM-DD.`);
         skippedBadDate++;
@@ -189,6 +228,14 @@ const seedAttendanceFromJson = async () => {
       if (!empInfo) {
         logger.warn(`⏭️ Skipped [${code}]: Employee code not found in current database.`);
         skippedUnknownEmp++;
+        continue;
+      }
+
+      // Enforce status validation
+      const status = record.status ? record.status.trim() : 'P';
+      if (!VALID_STATUSES.includes(status)) {
+        logger.warn(`⏭️ Skipped [${code}] on date [${record.date}]: Invalid status "${status}".`);
+        skippedBadStatus++;
         continue;
       }
 
@@ -203,13 +250,17 @@ const seedAttendanceFromJson = async () => {
         const diffMs = outTime.getTime() - inTime.getTime();
         totalMinutes = Math.floor(diffMs / 60000);
         totalHours = parseFloat((totalMinutes / 60).toFixed(2));
+      } else if (status === 'Half') {
+        // Enforce fallback total hours for half day if times not provided
+        totalHours = 4.5;
+        totalMinutes = 270;
       }
 
       // Compute late minutes based on 9:30 AM shift start
       let isLate = false;
       let lateMinutes = 0;
-      if (inTime) {
-        const shiftStart = getShiftStart(date);
+      if (inTime && (status === 'P' || status === 'Half')) {
+        const shiftStart = getShiftStartUTC(date);
         if (shiftStart) {
           const diffMs = inTime.getTime() - shiftStart.getTime();
           if (diffMs > 0) {
@@ -230,11 +281,11 @@ const seedAttendanceFromJson = async () => {
         employeeCode: code,
         employeeName: empInfo.name,
         date,
-        inTime,
-        outTime,
+        inTime: (status === 'P' || status === 'Half') ? inTime : undefined,
+        outTime: (status === 'P' || status === 'Half') ? outTime : undefined,
         totalHours,
         totalMinutes,
-        status: 'P', // Strictly Present as required
+        status,
         isLate,
         lateMinutes,
         isGeoAttendance: true,
@@ -250,7 +301,7 @@ const seedAttendanceFromJson = async () => {
         correctionStatus: 'None'
       };
 
-      // Perform upsert (update if exists, insert if new) to fully prevent duplicates
+      // Perform bulk upsert (update if exists, insert if new) to fully prevent duplicates
       bulkOps.push({
         updateOne: {
           filter: { employeeCode: code, date },
@@ -259,17 +310,23 @@ const seedAttendanceFromJson = async () => {
         }
       });
 
+      // Register affected scope for payroll updates
+      affectedEmployees.add(empInfo.id.toString());
+      const monthKey = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+      affectedMonths.add(`${empInfo.id.toString()}|${monthKey}`);
+
       processedCount++;
-      logger.info(`✅ Prepared [${code}] for date [${record.date}] - Late Mins: ${lateMinutes}, Total Hrs: ${totalHours}`);
+      logger.info(`✅ Prepared [${code}] for date [${record.date}] - Status: ${status}, Late: ${lateMinutes}m, Worked: ${totalHours}h`);
     }
 
     logger.info(`
 📋 PRE-PROCESSING BATCH SUMMARY:
-   - Total Entries Received: ${ATTENDANCE_JSON_DATA.length}
-   - Prepared to Upsert   : ${processedCount}
-   - Skipped (No Code)    : ${skippedNoCode}
-   - Skipped (Bad Date)   : ${skippedBadDate}
-   - Skipped (Unknown Emp): ${skippedUnknownEmp}
+   - Total Entries Received : ${ATTENDANCE_JSON_DATA.length}
+   - Prepared to Upsert    : ${processedCount}
+   - Skipped (No Code)     : ${skippedNoCode}
+   - Skipped (Bad Date)    : ${skippedBadDate}
+   - Skipped (Bad Status)  : ${skippedBadStatus}
+   - Skipped (Unknown Emp) : ${skippedUnknownEmp}
 `);
 
     if (bulkOps.length === 0) {
@@ -281,7 +338,7 @@ const seedAttendanceFromJson = async () => {
     }
 
     // 4. Execute Bulk Write Database Operations
-    logger.info(`💾 Executing bulk database operations in chunks...`);
+    logger.info(`💾 Executing bulk database operations...`);
     const results = await Attendance.bulkWrite(bulkOps, { ordered: false });
     
     logger.info(`
@@ -291,6 +348,36 @@ const seedAttendanceFromJson = async () => {
    - Upserted (Update): ${results.nUpserted || 0}
    - Modified         : ${results.nModified || 0}
 `);
+
+    // 5. Automated Cross-Module Synchronisation with Payroll
+    logger.info('🪙 Synchronizing changes with the Payroll Module...');
+    for (const key of affectedMonths) {
+      const [empIdStr, yyyyMm] = key.split('|');
+      const [yearStr, monthStr] = yyyyMm.split('-');
+      
+      const targetMonth = parseInt(monthStr, 10);
+      const targetYear = parseInt(yearStr, 10);
+
+      // Query active payroll statements for the target period
+      const payrolls = await Payroll.find({
+        employeeId: empIdStr,
+        month: targetMonth,
+        year: targetYear
+      });
+
+      for (const pr of payrolls) {
+        logger.info(`   🔄 Reprocessing Payroll for Employee [${pr.employeeCode}] during cycle: ${pr.fromDate.toDateString()} - ${pr.toDate.toDateString()}...`);
+        await processSingleEmployeePayroll({
+          employeeId: pr.employeeId,
+          fromDate: pr.fromDate,
+          toDate: pr.toDate,
+          targetMonth: pr.month,
+          targetYear: pr.year,
+          processedBy: new mongoose.Types.ObjectId(empIdStr)
+        });
+      }
+    }
+    logger.info('🎉 Payroll Module successfully synchronized with seeded attendance records!');
 
     if (connectionOpenedLocally) {
       await mongoose.disconnect();

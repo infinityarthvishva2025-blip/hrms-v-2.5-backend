@@ -20,6 +20,7 @@ const payrollSchema = new mongoose.Schema(
     totalDaysInMonth: { type: Number, required: true },
     workingDays: { type: Number, default: 0 },
     presentDays: { type: Number, default: 0 },
+    presentDayDetails: [{ date: Date, reason: String }], // To track specific present days
     halfDays: { type: Number, default: 0 },
     halfDayDetails: [{ date: Date, reason: String }], // To track specific half days
     absentDays: { type: Number, default: 0 },

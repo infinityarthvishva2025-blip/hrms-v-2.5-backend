@@ -159,7 +159,7 @@ export const refreshToken = asyncHandler(async (req, res) => {
     .status(200)
     .cookie('accessToken', newAccessToken, { ...COOKIE_OPTIONS, maxAge: 15 * 60 * 1000 })
     .cookie('refreshToken', newRefreshToken, { ...COOKIE_OPTIONS, maxAge: 7 * 24 * 60 * 60 * 1000 })
-    .json(new ApiResponse(200, { accessToken: newAccessToken }, 'Token refreshed'));
+    .json(new ApiResponse(200, { accessToken: newAccessToken, refreshToken: newRefreshToken }, 'Token refreshed'));
 });
 
 // ─── GET ME ───────────────────────────────────────────────────────────────────
