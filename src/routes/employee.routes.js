@@ -43,12 +43,13 @@ router.get('/positions', getPositions);
 router.get('/management', getManagementEmployees);
 router.get('/export/excel', authorizeRoles(...CAN_CREATE_EMPLOYEE), exportEmployeesToExcel);
 router.get('/', authorizeRoles(...CAN_CREATE_EMPLOYEE, 'Manager'), getAllEmployees);
+router.get('/birthdays/upcoming', getUpcomingBirthdays);
+router.put('/profile/face-descriptor', updateFaceDescriptor);
+router.patch('/profile/fcm-token', updateFcmToken);
+
 router.get('/:id', getEmployeeById);
 router.post('/', authorizeRoles(...CAN_CREATE_EMPLOYEE), documentFields, createEmployee);
 router.put('/:id', authorizeRoles(...CAN_EDIT_EMPLOYEE), documentFields, updateEmployee);
-router.put('/profile/face-descriptor', updateFaceDescriptor);
-router.get('/birthdays/upcoming', getUpcomingBirthdays);
-router.patch('/profile/fcm-token', updateFcmToken);
 router.patch('/:id/status', authorizeRoles(...CAN_EDIT_EMPLOYEE), toggleEmployeeStatus);
 
 export default router;

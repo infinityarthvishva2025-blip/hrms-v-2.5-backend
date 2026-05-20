@@ -1,6 +1,8 @@
 import { Employee } from '../models/Employee.model.js';
 import { Attendance } from '../models/Attendance.model.js';
 import { Leave } from '../models/Leave.model.js';
+import { Holiday } from '../models/Holiday.model.js';
+import { Announcement } from '../models/Announcement.model.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 
@@ -224,3 +226,138 @@ export const getHRDashboardStats = asyncHandler(async (req, res) => {
     }
   }, 'HR Dashboard stats fetched successfully'));
 });
+
+// ─── EMPLOYEE DASHBOARD STATS (NEW UNIFIED API) ──────────────────────────────
+export const getEmployeeDashboardStats = asyncHandler(async (req, res) => {
+  const employeeId = req.user._id;
+  const today = startOfDay();
+  const todayEnd = endOfDay();
+  const currentMonthStart = startOfMonth();
+  const now = new Date();
+
+  // Concurrent Optimized Database Queries
+  const [
+    todayRecord,
+    monthlySummary,
+    todayBirthdays,
+    tomorrowBirthdays,
+    upcomingHolidays,
+    pendingLeavesCount,
+    employeeInfo,
+    announcements
+  ] = await Promise.all([
+    // 1. Today's Attendance Record
+    Attendance.findOne({
+      employeeId,
+      date: { $gte: today, $lte: todayEnd }
+    }),
+
+    // 2. Monthly Summary aggregation (only for the current month)
+    Attendance.aggregate([
+      {
+        $match: {
+          employeeId,
+          date: { $gte: currentMonthStart, $lte: todayEnd }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          present: { $sum: { $cond: [{ $in: ["$status", ["P", "AUTO", "Coff"]] }, 1, 0] } },
+          absent: { $sum: { $cond: [{ $eq: ["$status", "A"] }, 1, 0] } },
+          late: { $sum: { $cond: ["$isLate", 1, 0] } },
+          totalHours: { $sum: { $ifNull: ["$totalHours", 0] } }
+        }
+      }
+    ]),
+
+    // 3. Today's Birthdays
+    Employee.find({
+      status: 'Active',
+      $expr: {
+        $and: [
+          { $eq: [{ $month: '$dateOfBirth' }, today.getMonth() + 1] },
+          { $eq: [{ $dayOfMonth: '$dateOfBirth' }, today.getDate()] }
+        ]
+      }
+    }).select('name employeeCode profileImageUrl department dateOfBirth'),
+
+    // 4. Tomorrow's Birthdays
+    Employee.find({
+      status: 'Active',
+      $expr: {
+        $and: [
+          { $eq: [{ $month: '$dateOfBirth' }, new Date(Date.now() + 86400000).getMonth() + 1] },
+          { $eq: [{ $dayOfMonth: '$dateOfBirth' }, new Date(Date.now() + 86400000).getDate()] }
+        ]
+      }
+    }).select('name employeeCode profileImageUrl department dateOfBirth'),
+
+    // 5. Upcoming Holidays (next 5)
+    Holiday.find({
+      date: { $gte: today }
+    })
+      .sort({ date: 1 })
+      .limit(5)
+      .select('date name type description'),
+
+    // 6. Pending Leaves Count
+    Leave.countDocuments({
+      employeeId,
+      overallStatus: 'Pending'
+    }),
+
+    // 7. Fresh Employee balances
+    Employee.findById(employeeId).select('paidLeaveBalance compOffBalance'),
+
+    // 8. Active Targeted Announcements (Notice Board)
+    Announcement.find({
+      isActive: true,
+      $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }],
+      $and: [
+        {
+          $or: [
+            { targetType: 'All' },
+            { targetType: 'Department', targetDepartments: req.user.department },
+            { targetType: 'Role', targetRoles: req.user.role },
+            { targetType: 'Employee', targetEmployees: employeeId },
+          ]
+        }
+      ]
+    })
+      .populate('createdBy', 'name role profileImageUrl')
+      .sort({ priority: -1, createdAt: -1 })
+      .limit(3)
+  ]);
+
+  // Format monthly stats safely
+  const stats = monthlySummary[0] || { present: 0, absent: 0, late: 0, totalHours: 0 };
+
+  res.json(
+    new ApiResponse(
+      200,
+      {
+        todayRecord,
+        monthlySummary: {
+          present: stats.present,
+          absent: stats.absent,
+          late: stats.late,
+          totalHours: stats.totalHours,
+        },
+        birthdays: {
+          today: todayBirthdays,
+          tomorrow: tomorrowBirthdays
+        },
+        upcomingHolidays,
+        leaveSummary: {
+          paidLeaveBalance: employeeInfo?.paidLeaveBalance || 0,
+          compOffBalance: employeeInfo?.compOffBalance || 0,
+          pendingLeavesCount
+        },
+        announcements
+      },
+      'Employee Dashboard stats fetched successfully'
+    )
+  );
+});
+
