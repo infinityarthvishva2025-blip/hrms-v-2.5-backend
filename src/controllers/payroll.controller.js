@@ -44,18 +44,62 @@ const convertNumberToWords = (amount) => {
  *    (The ₹175 tier for 7,500–10,000 has been removed per updated policy)
  */
 const calculatePT = (baseSalary, gender, month) => {
-  // February special rule (0-indexed: Jan=0, Feb=1)
-  if (month === 1) {
-    return 300;
+  const normalizedGender = gender?.toLowerCase();
+
+  // =========================
+  // FEMALE
+  // =========================
+  if (normalizedGender === 'female') {
+    // Up to 25,000 => NIL
+    if (baseSalary <= 25000) {
+      return 0;
+    }
+
+    // February => 300
+    if (month === 1) {
+      return 300;
+    }
+
+    // Other months
+    return 200;
   }
 
-  if (gender === 'Female') {
-    return baseSalary > 25000 ? 200 : 0;
-  } else {
-    // Male or Other
-    return baseSalary > 10000 ? 200 : 0;
+  // =========================
+  // MALE / OTHER
+  // =========================
+
+  // Up to 7,500 => NIL
+  if (baseSalary <= 7500) {
+    return 0;
   }
+
+  // 7,501 to 10,000 => 175
+  if (baseSalary <= 10000) {
+    return 175;
+  }
+
+  // Above 10,000
+  if (month === 1) {
+    return 300; // February
+  }
+
+  return 200;
 };
+
+
+// const calculatePT = (baseSalary, gender, month) => {
+//   // February special rule (0-indexed: Jan=0, Feb=1)
+//   if (month === 1) {
+//     return 300;
+//   }
+
+//   if (gender === 'Female') {
+//     return baseSalary > 25000 ? 200 : 0;
+//   } else {
+//     // Male or Other
+//     return baseSalary > 10000 ? 200 : 0;
+//   }
+// };
 
 // ─── GENERATE PAYROLL (HELPER FOR SINGLE EMPLOYEE) ──────────────────────────
 

@@ -508,3 +508,93 @@ export const exportEmployeesToExcel = asyncHandler(async (req, res) => {
   res.setHeader('Content-Disposition', 'attachment; filename=Employee_Records.xlsx');
   res.send(buffer);
 });
+
+
+
+
+
+// ------------------------------------?
+
+// ─── PROFILE API: Get detailed profile of the currently authenticated user ───
+export const getMyProfile = asyncHandler(async (req, res) => {
+  // Only Employee records have profiles; SpecialLogin users won’t have one.
+  const employee = await Employee.findById(req.user._id)
+    .select('-password -refreshToken -faceDescriptor')
+    .lean(); // lean for better read performance, but you can use .toSafeObject() after
+
+  if (!employee) {
+    throw new ApiError(404, 'Employee profile not found');
+  }
+
+  // Return the full employee object (all important details)
+  res.json(new ApiResponse(200, employee, 'Profile fetched successfully'));
+});
+
+// ─── EMPLOYEE DIRECTORY API: Minimal shareable list of all active employees ──
+export const getEmployeeDirectory = asyncHandler(async (req, res) => {
+  const {
+    page = 1,
+    limit = 50,
+    search,
+    department,
+    status = 'Active', // default to Active only; can be overridden if needed
+  } = req.query;
+
+  // Build the query
+  const query = {};
+
+  // Only active employees unless explicitly requested otherwise
+  if (status) query.status = status;
+  if (department) query.department = { $regex: department, $options: 'i' };
+
+  if (search) {
+    query.$or = [
+      { name: { $regex: search, $options: 'i' } },
+      { email: { $regex: search, $options: 'i' } },
+      { mobileNumber: { $regex: search, $options: 'i' } },
+    ];
+  }
+
+  // Validate pagination parameters (ensure they are positive integers)
+  const pageNum = Math.max(1, parseInt(page, 10) || 1);
+  const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 50)); // cap at 100
+  const skip = (pageNum - 1) * limitNum;
+
+  // Optimised query: select only required fields
+  const [employees, total] = await Promise.all([
+    Employee.find(query)
+      .select('name email mobileNumber role department position profileImageUrl employeeCode')
+      .sort({ name: 1 }) // alphabetical by name
+      .skip(skip)
+      .limit(limitNum)
+      .lean(),
+    Employee.countDocuments(query),
+  ]);
+
+  // Transform into the minimal, shareable format
+  const directoryEntries = employees.map((emp) => ({
+    name: emp.name,
+    role: emp.role,
+    department: emp.department,
+    phone: emp.mobileNumber,
+    email: emp.email,
+    profilePhoto: emp.profileImageUrl || null,
+    // Optionally include employeeId for internal use; the spec didn't require it,
+    // but it's often useful. Uncomment if needed:
+    // employeeId: emp.employeeCode,
+  }));
+
+  res.json(
+    new ApiResponse(
+      200,
+      {
+        employees: directoryEntries,
+        total,
+        page: pageNum,
+        limit: limitNum,
+        totalPages: Math.ceil(total / limitNum),
+      },
+      'Employee directory fetched successfully'
+    )
+  );
+});

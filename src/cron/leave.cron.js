@@ -16,7 +16,7 @@ export const initLeaveCronJobs = async () => {
   logger.info('🚀 Initializing leave cron jobs...');
 
   // Immediate catch-up run on server start
-  await processMonthlyLeaveAccrual({ triggeredBy: 'startup' });
+  // await processMonthlyLeaveAccrual({ triggeredBy: 'startup' });
 
   // Scheduled: 00:00 on the 1st of every month
   cron.schedule('0 0 1 * *', async () => {

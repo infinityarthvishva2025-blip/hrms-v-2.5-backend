@@ -20,7 +20,7 @@ router.post('/generate-all', authorizeRoles(...MANAGEMENT_ROLES), generateAllPay
 router.post('/generate', authorizeRoles(...ALL_ROLES), generatePayroll);
 router.get('/list', authorizeRoles(...ALL_ROLES), getPayrollList);
 
-// ── INDIVIDUAL ACCESS ──
+// ── INDIVIDUAL ACCESS ──-------------------------------------------------------------------------------------------------------------------
 router.get('/salary-slip/:id', getSalarySlip);
 
 export default router;

@@ -39,67 +39,69 @@ const __dirname = path.dirname(__filename);
 // ─────────────────────────────────────────────────────────────────────────────
 const ATTENDANCE_JSON_DATA = [
   {
-    employeeCode: "IA00117",
-    date: "2026-04-20",
+    employeeCode: "IA00115",
+    date: "2026-05-05",
     status: "P",
     inTime: "09:15:00", // On time (Shift starts at 09:30)
     outTime: "18:30:00",
     workMode: "Office",
-    todayWork: "Implemented enterprise complaint system routing layers.",
-    pendingWork: "Connect complaints dashboard to live admin channels.",
+    todayWork: "NA",
+    pendingWork: "NA",
     issuesFaced: "None"
-  },
-  {
-    employeeCode: "IA00117",
-    date: "2026-04-21",
-    status: "P",
-    inTime: "09:45:00", // Late (Shift starts at 09:30)
-    outTime: "18:15:00",
-    workMode: "Office",
-    todayWork: "Designed scroll-linked interactive header with opacity animations.",
-    pendingWork: "Integrate premium color palettes onto mobile dashboard views.",
-    issuesFaced: "None"
-  },
-  {
-    employeeCode: "IA00117",
-    date: "2026-04-22",
-    status: "Half", // Half Day
-    inTime: "09:20:00",
-    outTime: "13:50:00",
-    workMode: "Office",
-    todayWork: "Conducted review of backend payroll calculation routines.",
-    pendingWork: "Implement automated Professional Tax deductions logic.",
-    issuesFaced: "Left early due to dental checkup."
-  },
-  {
-    employeeCode: "IA00117",
-    date: "2026-04-23",
-    status: "L", // Leave
-    workMode: "Office"
-  },
-  {
-    employeeCode: "IA00117",
-    date: "2026-04-24",
-    status: "P",
-    inTime: "09:25:00",
-    outTime: "18:30:00",
-    workMode: "Office",
-    todayWork: "Finalized past date selection for comp-offs and paid leaves.",
-    pendingWork: "Perform full end-to-end integration tests on staging cluster.",
-    issuesFaced: "None"
-  },
-  {
-    employeeCode: "IA00117",
-    date: "2026-04-25",
-    status: "Coff", // Comp-Off
-    workMode: "Office"
-  },
-  {
-    employeeCode: "IA00117",
-    date: "2026-04-26",
-    status: "WO", // Week-Off (Sunday)
-    workMode: "Office"
   }
+  // {
+  //   employeeCode: "IA00117",
+  //   date: "2026-04-21",
+  //   status: "P",
+  //   inTime: "09:45:00", // Late (Shift starts at 09:30)
+  //   outTime: "18:15:00",
+  //   workMode: "Office",
+  //   todayWork: "Designed scroll-linked interactive header with opacity animations.",
+  //   pendingWork: "Integrate premium color palettes onto mobile dashboard views.",
+  //   issuesFaced: "None"
+  // },
+  // {
+  //   employeeCode: "IA00117",
+  //   date: "2026-04-22",
+  //   status: "Half", // Half Day
+  //   inTime: "09:20:00",
+  //   outTime: "13:50:00",
+  //   workMode: "Office",
+  //   todayWork: "Conducted review of backend payroll calculation routines.",
+  //   pendingWork: "Implement automated Professional Tax deductions logic.",
+  //   issuesFaced: "Left early due to dental checkup."
+  // },
+  // {
+  //   employeeCode: "IA00117",
+  //   date: "2026-04-23",
+  //   status: "L", // Leave
+  //   workMode: "Office"
+  // },
+  // {
+  //   employeeCode: "IA00117",
+  //   date: "2026-04-24",
+  //   status: "P",
+  //   inTime: "09:25:00",
+  //   outTime: "18:30:00",
+  //   workMode: "Office",
+  //   todayWork: "Finalized past date selection for comp-offs and paid leaves.",
+  //   pendingWork: "Perform full end-to-end integration tests on staging cluster.",
+  //   issuesFaced: "None"
+  // },
+  // {
+  //   employeeCode: "IA00115",
+  //   date: "2026-05-13",
+  //   status: "Coff", // Comp-Off
+  //   workMode: "Office"
+  // },
+
+
+  // {
+  //   employeeCode: "IA00117",
+  //   date: "2026-04-26",
+  //   status: "WO", // Week-Off (Sunday)
+  //   workMode: "Office"
+  // }
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────

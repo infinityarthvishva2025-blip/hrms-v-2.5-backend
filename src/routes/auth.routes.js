@@ -10,6 +10,7 @@ import {
   forgotPassword,
 } from '../controllers/auth.controller.js';
 import { verifyJWT } from '../middleware/auth.middleware.js';
+import { getMyProfile } from '../controllers/employee.controller.js';
 
 
 
@@ -21,6 +22,7 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 router.post('/login', login);
 router.post('/refresh', refreshToken);
 router.post('/logout', verifyJWT, logout);
+//
 router.get('/me', verifyJWT, getMe);
 router.post('/change-password', verifyJWT, changePassword);
 router.post('/forgot-password', forgotPassword);

@@ -14,6 +14,8 @@ import {
   getUpcomingBirthdays,
   updateFcmToken,
   exportEmployeesToExcel,
+  getEmployeeDirectory,
+  getMyProfile,
 } from '../controllers/employee.controller.js';
 import { verifyJWT } from '../middleware/auth.middleware.js';
 import { authorizeRoles, CAN_CREATE_EMPLOYEE, CAN_EDIT_EMPLOYEE } from '../middleware/role.middleware.js';
@@ -37,6 +39,11 @@ const documentFields = upload.fields([
 
 router.use(verifyJWT);
 
+
+// ── New APIs ──────────────────────────────────────────────────────────────────
+router.get('/profile', getMyProfile);               // 1. Profile API (self)
+router.get('/directory', getEmployeeDirectory);     // 2. Employee Directory API
+
 router.get('/next-code', getNextEmployeeCode);
 router.get('/departments', getDepartments);
 router.get('/positions', getPositions);
@@ -51,5 +58,10 @@ router.get('/:id', getEmployeeById);
 router.post('/', authorizeRoles(...CAN_CREATE_EMPLOYEE), documentFields, createEmployee);
 router.put('/:id', authorizeRoles(...CAN_EDIT_EMPLOYEE), documentFields, updateEmployee);
 router.patch('/:id/status', authorizeRoles(...CAN_EDIT_EMPLOYEE), toggleEmployeeStatus);
+
+
+
+
+
 
 export default router;
