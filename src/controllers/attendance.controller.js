@@ -456,10 +456,7 @@ export const getMySummary = asyncHandler(async (req, res) => {
 
 // attendance.controller.js
 
-// import { Attendance } from '../models/Attendance.model.js';
-// import { ApiError } from '../utils/ApiError.js';
-// import { ApiResponse } from '../utils/ApiResponse.js';
-// import { asyncHandler } from '../utils/asyncHandler.js';
+// updated the controller function for the get attedance of the employees
 
 /**
  * @desc    Fetch attendance records with employee, date range & status filters
