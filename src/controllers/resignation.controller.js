@@ -3,6 +3,8 @@ import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { ApiError } from '../utils/ApiError.js';
 
+
+//  working on the resignation module
 const getApprovalChain = (role) => {
   if (['Employee', 'Intern', 'fresher'].includes(role)) {
     return ['Manager', 'HR', 'GM', 'VP', 'Director'];

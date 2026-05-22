@@ -452,103 +452,245 @@ export const getMySummary = asyncHandler(async (req, res) => {
 // Add this function after existing exports in attendance.controller.js
 
 // ─── FETCH ATTENDANCE BY DATE (PAGINATED & SEARCHABLE) ─────────────────────────
-export const getAttendanceByDate = asyncHandler(async (req, res) => {
-  const { date, page = 1, limit = 10, search = '' } = req.query;
 
-  if (!date) {
-    throw new ApiError(400, 'Date query parameter is required (YYYY-MM-DD)');
+
+// attendance.controller.js
+
+// import { Attendance } from '../models/Attendance.model.js';
+// import { ApiError } from '../utils/ApiError.js';
+// import { ApiResponse } from '../utils/ApiResponse.js';
+// import { asyncHandler } from '../utils/asyncHandler.js';
+
+/**
+ * @desc    Fetch attendance records with employee, date range & status filters
+ * @route   GET /api/attendance/employee-attendance
+ * @access  Private (adjust as needed)
+ *
+ * Query Parameters:
+ *   fromDate     – YYYY-MM-DD  (default: today)
+ *   toDate       – YYYY-MM-DD  (default: today)
+ *   employeeCode – Exact employee code (optional)
+ *   status       – Attendance status, e.g. 'P','A' (optional)
+ *   search       – Fuzzy search on employeeCode or employeeName
+ *   page         – Page number (default 1)
+ *   limit        – Records per page (default 10, max 100)
+ *
+ *   Legacy support: if `date` is provided and no fromDate/toDate, single day is used.
+ */
+export const getAttendanceByDate = asyncHandler(async (req, res) => {
+  const {
+    fromDate,
+    toDate,
+    date,               // legacy single date
+    employeeCode,
+    status,
+    search = '',
+    page = 1,
+    limit = 10,
+  } = req.query;
+
+  // ── DATE HANDLING ───────────────────────────────────────────────
+  let startDate, endDate;
+  const today = new Date();
+
+  if (fromDate && toDate) {
+    startDate = new Date(fromDate);
+    endDate = new Date(toDate);
+  } else if (date) {
+    startDate = new Date(date);
+    endDate = new Date(date);
+  } else {
+    // Default: today's date
+    startDate = today;
+    endDate = today;
   }
 
-  // ✅ FIX 1: Proper date range (NO external dependency)
-  const start = new Date(date);
-  start.setHours(0, 0, 0, 0);
+  // Normalise to midnight range
+  startDate.setHours(0, 0, 0, 0);
+  endDate.setHours(23, 59, 59, 999);
 
-  const end = new Date(date);
-  end.setHours(23, 59, 59, 999);
+  // Validate
+  if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+    throw new ApiError(400, 'Invalid date format. Please use YYYY-MM-DD.');
+  }
+  if (startDate > endDate) {
+    throw new ApiError(400, 'fromDate cannot be after toDate.');
+  }
 
-  const pageNum = parseInt(page);
-  const limitNum = parseInt(limit);
+  // ── PAGINATION ──────────────────────────────────────────────────
+  const pageNum = Math.max(1, parseInt(page, 10));
+  const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
   const skip = (pageNum - 1) * limitNum;
 
-  // ✅ Employee filter
-  let employeeFilter = { status: 'Active' };
+  // ── BUILD FILTER ────────────────────────────────────────────────
+  const filter = {
+    date: { $gte: startDate, $lte: endDate },
+  };
 
-  if (search) {
-    employeeFilter.$or = [
+  // Exact employee code filter (case‑insensitive, uppercase)
+  if (employeeCode) {
+    filter.employeeCode = employeeCode.toUpperCase();
+  }
+
+  // Status filter (single value; can be extended to support comma‑separated)
+  if (status) {
+    filter.status = status;
+  }
+
+  // Text search on employee code and name (when no exact code is given)
+  if (!employeeCode && search) {
+    filter.$or = [
       { employeeCode: { $regex: search, $options: 'i' } },
-      { name: { $regex: search, $options: 'i' } }
+      { employeeName: { $regex: search, $options: 'i' } },
     ];
   }
 
-  const totalEmployees = await Employee.countDocuments(employeeFilter);
+  // ── DATABASE QUERIES ────────────────────────────────────────────
+  const [totalRecords, attendanceRecords] = await Promise.all([
+    Attendance.countDocuments(filter),
+    Attendance.find(filter)
+      .sort({ date: 1, employeeCode: 1 })   // date, then employee code
+      .skip(skip)
+      .limit(limitNum)
+      .lean(),
+  ]);
 
-  const employees = await Employee.find(employeeFilter)
-    .sort({ employeeCode: 1 })
-    .skip(skip)
-    .limit(limitNum)
-    .lean();
+  // ── MAP TO RESPONSE FORMAT ──────────────────────────────────────
+  const result = attendanceRecords.map((record) => ({
+    employeeCode: record.employeeCode,
+    employeeName: record.employeeName,
+    date: record.date,
+    workMode: record.workMode || 'Office',
+    checkInTime: record.inTime || null,
+    checkOutTime: record.outTime || null,
+    totalHours: record.totalHours ?? 0,
+    status: record.status,
+    location: {
+      latitude: record.checkInLatitude || null,
+      longitude: record.checkInLongitude || null,
+      checkOutLatitude: record.checkOutLatitude || null,
+      checkOutLongitude: record.checkOutLongitude || null,
+    },
+    locationHistory: record.locationHistory || [],
+  }));
 
-  if (!employees.length) {
-    return res.json(new ApiResponse(200, [], {
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total: totalEmployees,
-        totalPages: Math.ceil(totalEmployees / limitNum)
-      }
-    }, 'No employees found'));
-  }
-
-  // ✅ FIX 2: Use employeeId instead of employeeCode
-  const employeeIds = employees.map(emp => emp._id);
-
-  // ✅ FIX 3: Correct date query
-  const attendanceRecords = await Attendance.find({
-    employeeId: { $in: employeeIds },
-    date: { $gte: start, $lte: end }
-  }).lean();
-
-  // ✅ Create map for fast lookup (O(1))
-  const attendanceMap = {};
-  attendanceRecords.forEach(record => {
-    attendanceMap[record.employeeId.toString()] = record;
-  });
-
-  // ✅ Final result
-  const result = employees.map(emp => {
-    const record = attendanceMap[emp._id.toString()] || {};
-
-    return {
-      employeeCode: emp.employeeCode,
-      employeeName: emp.name,
-      date: start,
-
-      checkInTime: record.inTime || null,
-      checkOutTime: record.outTime || null,
-      totalHours: record.totalHours || 0,
-
-      status: record.status || 'A',
-      workMode: record.workMode || 'Office',
-      locationHistory: record.locationHistory || [],
-
-      location: {
-        latitude: record.checkInLatitude || null,
-        longitude: record.checkInLongitude || null,
-        checkOutLatitude: record.checkOutLatitude || null,
-        checkOutLongitude: record.checkOutLongitude || null
-      }
-    };
-  });
-
-  res.status(200).json(new ApiResponse(200, result, {
+  // ── CONSISTENT API RESPONSE ─────────────────────────────────────
+  res.status(200).json({
+    success: true,
+    data: result,
     pagination: {
       page: pageNum,
       limit: limitNum,
-      total: totalEmployees,
-      totalPages: Math.ceil(totalEmployees / limitNum)
-    }
-  }, `Attendance for ${date} fetched successfully`));
+      total: totalRecords,
+      totalPages: Math.ceil(totalRecords / limitNum),
+    },
+    message: 'Attendance records fetched successfully',
+  });
 });
+
+
+
+// export const getAttendanceByDate = asyncHandler(async (req, res) => {
+//   const { date, page = 1, limit = 10, search = '' } = req.query;
+
+//   if (!date) {
+//     throw new ApiError(400, 'Date query parameter is required (YYYY-MM-DD)');
+//   }
+
+//   // ✅ FIX 1: Proper date range (NO external dependency)
+//   const start = new Date(date);
+//   start.setHours(0, 0, 0, 0);
+
+//   const end = new Date(date);
+//   end.setHours(23, 59, 59, 999);
+
+//   const pageNum = parseInt(page);
+//   const limitNum = parseInt(limit);
+//   const skip = (pageNum - 1) * limitNum;
+
+//   // ✅ Employee filter
+//   let employeeFilter = { status: 'Active' };
+
+//   if (search) {
+//     employeeFilter.$or = [
+//       { employeeCode: { $regex: search, $options: 'i' } },
+//       { name: { $regex: search, $options: 'i' } }
+//     ];
+//   }
+
+//   const totalEmployees = await Employee.countDocuments(employeeFilter);
+
+//   const employees = await Employee.find(employeeFilter)
+//     .sort({ employeeCode: 1 })
+//     .skip(skip)
+//     .limit(limitNum)
+//     .lean();
+
+//   if (!employees.length) {
+//     return res.json(new ApiResponse(200, [], {
+//       pagination: {
+//         page: pageNum,
+//         limit: limitNum,
+//         total: totalEmployees,
+//         totalPages: Math.ceil(totalEmployees / limitNum)
+//       }
+//     }, 'No employees found'));
+//   }
+
+//   // ✅ FIX 2: Use employeeId instead of employeeCode
+//   const employeeIds = employees.map(emp => emp._id);
+
+//   // ✅ FIX 3: Correct date query
+//   const attendanceRecords = await Attendance.find({
+//     employeeId: { $in: employeeIds },
+//     date: { $gte: start, $lte: end }
+//   }).lean();
+
+//   // ✅ Create map for fast lookup (O(1))
+//   const attendanceMap = {};
+//   attendanceRecords.forEach(record => {
+//     attendanceMap[record.employeeId.toString()] = record;
+//   });
+
+//   // ✅ Final result
+//   const result = employees.map(emp => {
+//     const record = attendanceMap[emp._id.toString()] || {};
+
+//     return {
+//       employeeCode: emp.employeeCode,
+//       employeeName: emp.name,
+//       date: start,
+
+//       checkInTime: record.inTime || null,
+//       checkOutTime: record.outTime || null,
+//       totalHours: record.totalHours || 0,
+
+//       status: record.status || 'A',
+//       workMode: record.workMode || 'Office',
+//       locationHistory: record.locationHistory || [],
+
+//       location: {
+//         latitude: record.checkInLatitude || null,
+//         longitude: record.checkInLongitude || null,
+//         checkOutLatitude: record.checkOutLatitude || null,
+//         checkOutLongitude: record.checkOutLongitude || null
+//       }
+//     };
+//   });
+
+//   res.status(200).json(new ApiResponse(200, result, {
+//     pagination: {
+//       page: pageNum,
+//       limit: limitNum,
+//       total: totalEmployees,
+//       totalPages: Math.ceil(totalEmployees / limitNum)
+//     }
+//   }, `Attendance for ${date} fetched successfully`));
+// });
+
+
+
+
 
 // ─── ADMIN: ALL ATTENDANCE LIST ───────────────────────────────────────────────
 export const getAdminAttendanceList = asyncHandler(async (req, res) => {
