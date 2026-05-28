@@ -22,6 +22,12 @@ import dashboardRoutes from './routes/dashboard.routes.js';
 import resignationRoutes from './routes/resignation.routes.js';
 import complaintRoutes from './routes/complaint.routes.js';
 
+import versionRoutes from './routes/version.routes.js';
+import alertRoutes from './routes/alert.routes.js';
+
+
+
+
 import { initAllCronJobs } from './cron/index.js';
 import { processBirthdayNotifications } from './cron/birthday.cron.js';
 
@@ -36,6 +42,7 @@ const app = express();
 
 const allowedOrigins = [
   'http://localhost:5173',
+  'http://localhost:5174',
   'http://127.0.0.1:5173',
   'http://192.168.1.45:5173',
 
@@ -216,6 +223,13 @@ app.use('/api/dashboard', dashboardRoutes);
 
 app.use('/api/resignations', resignationRoutes);
 app.use('/api/complaints', complaintRoutes);
+
+
+
+// alert and version code api
+app.use('/api/alert', alertRoutes);
+app.use('/api/version', versionRoutes);
+
 
 // ─────────────────────────────────────────────────────────────
 // NOT FOUND HANDLER

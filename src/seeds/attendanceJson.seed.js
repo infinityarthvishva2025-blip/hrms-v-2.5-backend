@@ -39,16 +39,88 @@ const __dirname = path.dirname(__filename);
 // ─────────────────────────────────────────────────────────────────────────────
 const ATTENDANCE_JSON_DATA = [
   {
-    employeeCode: "IA00115",
-    date: "2026-05-05",
+    employeeCode: "IA00093",
+    date: "2026-05-13",
     status: "P",
-    inTime: "09:15:00", // On time (Shift starts at 09:30)
-    outTime: "18:30:00",
+    inTime: "09:49:00", // On time (Shift starts at 09:30)
+    outTime: "18:21:00",
     workMode: "Office",
-    todayWork: "NA",
+    todayWork: "1) Corrected the typo suggested by the security team Seated up the account for the CAPTCHA on the google captcha3) Added the captcha verification on the send OTP panel of the cibil page as per suggested by the cyber security team.",
     pendingWork: "NA",
     issuesFaced: "None"
-  }
+  },
+  //  {
+  //   employeeCode: "IA00019",
+  //   date: "2026-04-25",
+  //   status: "P",
+  //   inTime: "09:49:00", // On time (Shift starts at 09:30)
+  //   outTime: "18:21:00",
+  //   workMode: "Office",
+  //   todayWork: "1) Corrected the typo suggested by the security team Seated up the account for the CAPTCHA on the google captcha3) Added the captcha verification on the send OTP panel of the cibil page as per suggested by the cyber security team.",
+  //   pendingWork: "NA",
+  //   issuesFaced: "None"
+  // },
+  //   {
+  //   employeeCode: "IA00092",
+  //   date: "2026-04-23",
+  //   status: "P",
+  //   inTime: "09:49:00", // On time (Shift starts at 09:30)
+  //   outTime: "18:21:00",
+  //   workMode: "Office",
+  //   todayWork: "1) Corrected the typo suggested by the security team Seated up the account for the CAPTCHA on the google captcha3) Added the captcha verification on the send OTP panel of the cibil page as per suggested by the cyber security team.",
+  //   pendingWork: "NA",
+  //   issuesFaced: "None"
+  // },
+  //     {
+  //   employeeCode: "IA00096",
+  //   date: "2026-05-05",
+  //   status: "P",
+  //   inTime: "09:49:00", // On time (Shift starts at 09:30)
+  //   outTime: "18:21:00",
+  //   workMode: "Office",
+  //   todayWork: "1) Corrected the typo suggested by the security team Seated up the account for the CAPTCHA on the google captcha3) Added the captcha verification on the send OTP panel of the cibil page as per suggested by the cyber security team.",
+  //   pendingWork: "NA",
+  //   issuesFaced: "None"
+  // },
+  //       {
+  //   employeeCode: "IA00096",
+  //   date: "2026-04-30",
+  //   status: "P",
+  //   inTime: "09:49:00", // On time (Shift starts at 09:30)
+  //   outTime: "18:21:00",
+  //   workMode: "Office",
+  //   todayWork: "1) Corrected the typo suggested by the security team Seated up the account for the CAPTCHA on the google captcha3) Added the captcha verification on the send OTP panel of the cibil page as per suggested by the cyber security team.",
+  //   pendingWork: "NA",
+  //   issuesFaced: "None"
+  // }
+  // ,
+  //     {
+  //   employeeCode: "IA00145",
+  //   date: "2026-05-18",
+  //   status: "P",
+  //   inTime: "09:49:00", // On time (Shift starts at 09:30)
+  //   outTime: "18:21:00",
+  //   workMode: "Office",
+  //   todayWork: "1) Corrected the typo suggested by the security team Seated up the account for the CAPTCHA on the google captcha3) Added the captcha verification on the send OTP panel of the cibil page as per suggested by the cyber security team.",
+  //   pendingWork: "NA",
+  //   issuesFaced: "None"
+  // },
+  //     {
+  //   employeeCode: "IA00145",
+  //   date: "2026-05-19",
+  //   status: "P",
+  //   inTime: "09:49:00", // On time (Shift starts at 09:30)
+  //   outTime: "18:21:00",
+  //   workMode: "Office",
+  //   todayWork: "1) Corrected the typo suggested by the security team Seated up the account for the CAPTCHA on the google captcha3) Added the captcha verification on the send OTP panel of the cibil page as per suggested by the cyber security team.",
+  //   pendingWork: "NA",
+  //   issuesFaced: "None"
+  // }
+
+
+
+
+
   // {
   //   employeeCode: "IA00117",
   //   date: "2026-04-21",
@@ -72,11 +144,65 @@ const ATTENDANCE_JSON_DATA = [
   //   issuesFaced: "Left early due to dental checkup."
   // },
   // {
-  //   employeeCode: "IA00117",
-  //   date: "2026-04-23",
+  //   employeeCode: "IA00093",
+  //   date: "2026-05-14",
   //   status: "L", // Leave
   //   workMode: "Office"
   // },
+
+  //   {
+  //   employeeCode: "IA00107",
+  //   date: "2026-04-22",
+  //   status: "A", // Leave
+  //   // workMode: "Office"
+  // },
+  //     {
+  //   employeeCode: "IA00090",
+  //   date: "2026-05-03",
+  //   status: "A", // Leave
+  //   // workMode: "Office"
+  // },
+
+  // {
+  //   employeeCode: "IA00116",
+  //   date: "2026-05-16",
+  //   status: "A", // Leave
+  //   // workMode: "Office"
+  // },
+  // {
+  //   employeeCode: "IA00116",
+  //   date: "2026-05-18",
+  //   status: "A", // Leave
+  //   // workMode: "Office"
+  // },
+  //   {
+  //   employeeCode: "IA00114",
+  //   date: "2026-05-14",
+  //   status: "A", // Leave
+  //   // workMode: "Office"
+  // },
+  //   {
+  //   employeeCode: "IA00114",
+  //   date: "2026-05-15",
+  //   status: "A", // Leave
+  //   // workMode: "Office"
+  // },
+  //     {
+  //   employeeCode: "IA00114",
+  //   date: "2026-05-16",
+  //   status: "A", // Leave
+  //   // workMode: "Office"
+  // },
+  //     {
+  //   employeeCode: "IA00114",
+  //   date: "2026-05-18",
+  //   status: "A", // Leave
+  //   // workMode: "Office"
+  // },
+
+
+
+
   // {
   //   employeeCode: "IA00117",
   //   date: "2026-04-24",
@@ -89,8 +215,8 @@ const ATTENDANCE_JSON_DATA = [
   //   issuesFaced: "None"
   // },
   // {
-  //   employeeCode: "IA00115",
-  //   date: "2026-05-13",
+  //   employeeCode: "IA00114",
+  //   date: "2026-05-11",
   //   status: "Coff", // Comp-Off
   //   workMode: "Office"
   // },
@@ -106,7 +232,8 @@ const ATTENDANCE_JSON_DATA = [
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TIMING CONSTANTS & GEOLOCATION DEFAULTS
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────----
+
 const IST_OFFSET_HOURS = 5;
 const IST_OFFSET_MINUTES = 30;
 const DEFAULT_SHIFT_START_HOUR = 9;      // 09:30 AM IST shift start
@@ -133,11 +260,11 @@ const parseDateToUTC = (dateStr) => {
   if (!dateStr) return null;
   const parts = dateStr.trim().split('-');
   if (parts.length !== 3) return null;
-  
+
   const yyyy = parseInt(parts[0], 10);
   const MM = parseInt(parts[1], 10) - 1; // 0-indexed
   const dd = parseInt(parts[2], 10);
-  
+
   return new Date(Date.UTC(yyyy, MM, dd, 0, 0, 0, 0));
 };
 
@@ -147,7 +274,7 @@ const parseDateToUTC = (dateStr) => {
  */
 const parseTimeOnDateIST = (timeStr, baseDate) => {
   if (!timeStr || !baseDate) return null;
-  
+
   const m = timeStr.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
   if (!m) return null;
 
@@ -182,7 +309,7 @@ const getShiftStartUTC = (baseDate) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const seedAttendanceFromJson = async () => {
   logger.info('🚀 Starting JSON-driven Attendance Database Seeding...');
-  
+
   let connectionOpenedLocally = false;
   try {
     // 1. Establish Database Connection if not already opened
@@ -273,8 +400,8 @@ const seedAttendanceFromJson = async () => {
       }
 
       // Normalize workMode input
-      const resolvedWorkMode = (record.workMode && ['Office', 'Field', 'WFH'].includes(record.workMode)) 
-        ? record.workMode 
+      const resolvedWorkMode = (record.workMode && ['Office', 'Field', 'WFH'].includes(record.workMode))
+        ? record.workMode
         : 'Office';
 
       // Build structured model record
@@ -342,7 +469,7 @@ const seedAttendanceFromJson = async () => {
     // 4. Execute Bulk Write Database Operations
     logger.info(`💾 Executing bulk database operations...`);
     const results = await Attendance.bulkWrite(bulkOps, { ordered: false });
-    
+
     logger.info(`
 🎉 SEEDING TRANSACTION COMPLETED:
    - Matched Records  : ${results.nMatched || 0}
@@ -356,7 +483,7 @@ const seedAttendanceFromJson = async () => {
     for (const key of affectedMonths) {
       const [empIdStr, yyyyMm] = key.split('|');
       const [yearStr, monthStr] = yyyyMm.split('-');
-      
+
       const targetMonth = parseInt(monthStr, 10);
       const targetYear = parseInt(yearStr, 10);
 
