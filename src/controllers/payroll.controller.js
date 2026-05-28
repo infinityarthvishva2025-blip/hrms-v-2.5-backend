@@ -237,6 +237,13 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
   const professionalTax = calculatePT(baseSalary, employee.gender, toDate.getUTCMonth());
   const netSalary = Math.max(0, grossEarnings - professionalTax);
 
+  // Derived "leaves taken" = actual non-working days that count against the employee
+  // (absent + paid leaves + half-day deductions). Used by frontend for consistency.
+  const leavesTaken = summary.absent + (summary.half * 0.5);
+
+  // // ── DEBUG AUDIT LOG ──
+  // console.log(`[Payroll] ${employee.employeeCode} | Total: ${totalDaysInRange} | P: ${summary.present} | H: ${summary.half} | A: ${summary.absent} | PL: ${summary.paidLeave} | WO: ${summary.weekOff} | HL: ${summary.holiday} | PaidDays: ${paidDays} | Leaves: ${leavesTaken} | Gross: ${grossEarnings} | PT: ${professionalTax} | Net: ${netSalary}`);
+
   return await Payroll.findOneAndUpdate(
     { employeeId, month: targetMonth, year: targetYear },
     {
@@ -251,9 +258,11 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
       absentDays: summary.absent,
       absentDayDetails,
       paidLeaves: summary.paidLeave,
+      unpaidLeaves: summary.absent,
       holidays: summary.holiday,
       weekOffs: summary.weekOff,
       paidDays, baseSalary, grossEarnings, professionalTax, netSalary,
+      leavesTaken,
       status: 'Processed',
       processedBy
     },

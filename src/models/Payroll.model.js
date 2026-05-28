@@ -29,6 +29,7 @@ const payrollSchema = new mongoose.Schema(
     unpaidLeaves: { type: Number, default: 0 },
     holidays: { type: Number, default: 0 },
     weekOffs: { type: Number, default: 0 },
+    leavesTaken: { type: Number, default: 0 }, // Centralized: absentDays + paidLeaves + (halfDays * 0.5)
     paidDays: { type: Number, required: true }, // Total days for which salary is paid
     
     // ── SALARY CALCULATIONS ──
