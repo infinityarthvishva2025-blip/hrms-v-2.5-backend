@@ -1,6 +1,7 @@
 import { Attendance } from '../models/Attendance.model.js';
 import { Employee } from '../models/Employee.model.js';
 import { Holiday } from '../models/Holiday.model.js';
+import { Leave } from '../models/Leave.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -519,6 +520,11 @@ export const getAttendanceByDate = asyncHandler(async (req, res) => {
   const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
   const skip = (pageNum - 1) * limitNum;
 
+  // ── DETERMINE IF WE SHOULD SYNTHESIZE WO/H/A RECORDS ────────────
+  // Only synthesize when the date range is manageable (≤ 31 days).
+  const daySpan = Math.ceil((endDate - startDate) / 86400000) + 1;
+  const shouldSynthesize = daySpan <= 31;
+
   // ── BUILD FILTER ────────────────────────────────────────────────
   const filter = {
     date: { $gte: startDate, $lte: endDate },
@@ -529,11 +535,6 @@ export const getAttendanceByDate = asyncHandler(async (req, res) => {
     filter.employeeCode = employeeCode.toUpperCase();
   }
 
-  // Status filter (single value; can be extended to support comma‑separated)
-  if (status) {
-    filter.status = status;
-  }
-
   // Text search on employee code and name (when no exact code is given)
   if (!employeeCode && search) {
     filter.$or = [
@@ -542,44 +543,294 @@ export const getAttendanceByDate = asyncHandler(async (req, res) => {
     ];
   }
 
-  // ── DATABASE QUERIES ────────────────────────────────────────────
-  const [totalRecords, attendanceRecords] = await Promise.all([
-    Attendance.countDocuments(filter),
-    Attendance.find(filter)
-      .sort({ date: 1, employeeCode: 1 })   // date, then employee code
-      .skip(skip)
-      .limit(limitNum)
-      .lean(),
-  ]);
+  // ── EMPLOYEE FILTER FOR SYNTHESIS ─────────────────────────────────
+  let employeeFilter = { status: 'Active' };
+  if (employeeCode) {
+    employeeFilter.employeeCode = employeeCode.toUpperCase();
+  }
+  if (!employeeCode && search) {
+    employeeFilter.$or = [
+      { employeeCode: { $regex: search, $options: 'i' } },
+      { name: { $regex: search, $options: 'i' } },
+    ];
+  }
 
-  // ── MAP TO RESPONSE FORMAT ──────────────────────────────────────
-  const result = attendanceRecords.map((record) => ({
-    employeeCode: record.employeeCode,
-    employeeName: record.employeeName,
-    date: record.date,
-    workMode: record.workMode || 'Office',
-    checkInTime: record.inTime || null,
-    checkOutTime: record.outTime || null,
-    totalHours: record.totalHours ?? 0,
-    status: record.status,
-    location: {
-      latitude: record.checkInLatitude || null,
-      longitude: record.checkInLongitude || null,
-      checkOutLatitude: record.checkOutLatitude || null,
-      checkOutLongitude: record.checkOutLongitude || null,
-    },
-    locationHistory: record.locationHistory || [],
-  }));
+  // ── DATABASE QUERIES ────────────────────────────────────────────
+  let attendanceRecords = [];
+  let dbCount = 0;
+
+  const dbQueries = [];
+  if (shouldSynthesize) {
+    // If synthesizing, fetch all records in range to combine in memory
+    dbQueries.push(Attendance.find(filter).sort({ date: 1, employeeCode: 1 }).lean());
+  } else {
+    // Standard DB pagination if range is too large
+    let standardFilter = { ...filter };
+    if (status) standardFilter.status = status;
+    dbQueries.push(Attendance.find(standardFilter).sort({ date: 1, employeeCode: 1 }).skip(skip).limit(limitNum).lean());
+    dbQueries.push(Attendance.countDocuments(standardFilter));
+  }
+
+  // Always fetch holidays in date range
+  dbQueries.push(Holiday.find({ date: { $gte: startDate, $lte: endDate } }).lean());
+
+  // Fetch active employees if synthesizing
+  if (shouldSynthesize) {
+    dbQueries.push(Employee.find(employeeFilter).select('_id employeeCode name').lean());
+  }
+
+  const results = await Promise.all(dbQueries);
+  let holidayRecords = [];
+  let activeEmployees = [];
+
+  if (shouldSynthesize) {
+    attendanceRecords = results[0] || [];
+    holidayRecords = results[1] || [];
+    activeEmployees = results[2] || [];
+  } else {
+    attendanceRecords = results[0] || [];
+    dbCount = results[1] || 0;
+    holidayRecords = results[2] || [];
+  }
+
+  // Helper date key generator
+  const getDateKey = (d) => {
+    const dt = new Date(d);
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  };
+
+  // ── FETCH LEAVE DETAILS FOR ENRICHMENT AND SYNTHESIS ─────────────
+  const leaveMap = new Map();
+
+  if (shouldSynthesize && activeEmployees.length > 0) {
+    const empIds = activeEmployees.map(e => e._id);
+    const leaves = await Leave.find({
+      employeeId: { $in: empIds },
+      overallStatus: { $in: ['Approved', 'Pending'] },
+      startDate: { $lte: endDate },
+      endDate: { $gte: startDate },
+    }).select('employeeId leaveType startDate endDate overallStatus').lean();
+
+    const empIdToCode = new Map(activeEmployees.map(e => [e._id.toString(), e.employeeCode]));
+
+    for (const leave of leaves) {
+      const code = empIdToCode.get(leave.employeeId.toString());
+      if (!code) continue;
+
+      let cur = new Date(leave.startDate);
+      cur.setHours(0, 0, 0, 0);
+      const end = new Date(leave.endDate);
+      end.setHours(0, 0, 0, 0);
+
+      while (cur <= end) {
+        if (cur >= startDate && cur <= endDate) {
+          const key = `${code}_${getDateKey(cur)}`;
+          const existing = leaveMap.get(key);
+          // Prefer Approved leaves over Pending leaves
+          if (!existing || leave.overallStatus === 'Approved') {
+            leaveMap.set(key, {
+              leaveType: leave.leaveType,
+              overallStatus: leave.overallStatus
+            });
+          }
+        }
+        cur.setDate(cur.getDate() + 1);
+      }
+    }
+  } else if (!shouldSynthesize && attendanceRecords.length > 0) {
+    // Fetch only for fetched DB records if not synthesizing
+    const leaveRecordCodes = [...new Set(
+      attendanceRecords.filter(r => r.status === 'L').map(r => r.employeeCode)
+    )];
+
+    if (leaveRecordCodes.length > 0) {
+      const leaveEmployees = await Employee.find(
+        { employeeCode: { $in: leaveRecordCodes } }
+      ).select('_id employeeCode').lean();
+
+      const empIds = leaveEmployees.map(e => e._id);
+      const approvedLeaves = await Leave.find({
+        employeeId: { $in: empIds },
+        overallStatus: { $in: ['Approved', 'Pending'] },
+        startDate: { $lte: endDate },
+        endDate: { $gte: startDate },
+      }).select('employeeId leaveType startDate endDate overallStatus').lean();
+
+      const empIdToCode = new Map(leaveEmployees.map(e => [e._id.toString(), e.employeeCode]));
+
+      for (const leave of approvedLeaves) {
+        const code = empIdToCode.get(leave.employeeId.toString());
+        if (!code) continue;
+
+        let cur = new Date(leave.startDate);
+        cur.setHours(0, 0, 0, 0);
+        const end = new Date(leave.endDate);
+        end.setHours(0, 0, 0, 0);
+
+        while (cur <= end) {
+          if (cur >= startDate && cur <= endDate) {
+            const key = `${code}_${getDateKey(cur)}`;
+            const existing = leaveMap.get(key);
+            if (!existing || leave.overallStatus === 'Approved') {
+              leaveMap.set(key, {
+                leaveType: leave.leaveType,
+                overallStatus: leave.overallStatus
+              });
+            }
+          }
+          cur.setDate(cur.getDate() + 1);
+        }
+      }
+    }
+  }
+
+  // ── BUILD HOLIDAY MAP ────────────────────────────────────────────
+  const holidayMap = new Map();
+  holidayRecords.forEach(h => {
+    holidayMap.set(getDateKey(h.date), h.name || 'Holiday');
+  });
+
+  // ── SYNTHESIS AND ENRICHMENT LOOP ────────────────────────────────
+  const result = [];
+
+  if (shouldSynthesize && activeEmployees.length > 0) {
+    const attendanceMap = new Map();
+    attendanceRecords.forEach(r => {
+      attendanceMap.set(`${r.employeeCode}_${getDateKey(r.date)}`, r);
+    });
+
+    let current = new Date(startDate);
+    while (current <= endDate) {
+      const dateKey = getDateKey(current);
+      const isSunday = current.getDay() === 0;
+      const holidayName = holidayMap.get(dateKey) || null;
+
+      for (const emp of activeEmployees) {
+        const key = `${emp.employeeCode}_${dateKey}`;
+        const record = attendanceMap.get(key);
+
+        if (record) {
+          // Real record exists
+          const leaveInfo = leaveMap.get(key);
+          result.push({
+            employeeCode: record.employeeCode,
+            employeeName: record.employeeName,
+            date: record.date,
+            workMode: record.workMode || 'Office',
+            checkInTime: record.inTime || null,
+            checkOutTime: record.outTime || null,
+            totalHours: record.totalHours ?? 0,
+            status: record.status,
+            leaveType: leaveInfo ? leaveInfo.leaveType : null,
+            leaveStatus: leaveInfo ? leaveInfo.overallStatus : null,
+            holidayName: holidayMap.get(dateKey) || null,
+            location: {
+              latitude: record.checkInLatitude || null,
+              longitude: record.checkInLongitude || null,
+              checkOutLatitude: record.checkOutLatitude || null,
+              checkOutLongitude: record.checkOutLongitude || null,
+            },
+            locationHistory: record.locationHistory || [],
+          });
+        } else {
+          // Synthesize missing record
+          let synthStatus = 'A';
+          let leaveType = null;
+          let leaveStatus = null;
+
+          const leaveInfo = leaveMap.get(key);
+
+          if (isSunday) {
+            synthStatus = 'WO';
+          } else if (holidayName) {
+            synthStatus = 'H';
+          } else if (leaveInfo) {
+            synthStatus = 'L';
+            leaveType = leaveInfo.leaveType;
+            leaveStatus = leaveInfo.overallStatus;
+          }
+
+          result.push({
+            employeeCode: emp.employeeCode,
+            employeeName: emp.name,
+            date: new Date(current),
+            workMode: null,
+            checkInTime: null,
+            checkOutTime: null,
+            totalHours: 0,
+            status: synthStatus,
+            leaveType: leaveType,
+            leaveStatus: leaveStatus,
+            holidayName: isSunday ? null : holidayName,
+            location: {
+              latitude: null,
+              longitude: null,
+              checkOutLatitude: null,
+              checkOutLongitude: null,
+            },
+            locationHistory: [],
+          });
+        }
+      }
+
+      current = new Date(current.getTime() + 86400000);
+    }
+  } else {
+    // No synthesis, map DB records only
+    attendanceRecords.forEach(record => {
+      const dateKey = getDateKey(record.date);
+      const leaveKey = `${record.employeeCode}_${dateKey}`;
+      const leaveInfo = leaveMap.get(leaveKey);
+
+      result.push({
+        employeeCode: record.employeeCode,
+        employeeName: record.employeeName,
+        date: record.date,
+        workMode: record.workMode || 'Office',
+        checkInTime: record.inTime || null,
+        checkOutTime: record.outTime || null,
+        totalHours: record.totalHours ?? 0,
+        status: record.status,
+        leaveType: leaveInfo ? leaveInfo.leaveType : null,
+        leaveStatus: leaveInfo ? leaveInfo.overallStatus : null,
+        holidayName: holidayMap.get(dateKey) || null,
+        location: {
+          latitude: record.checkInLatitude || null,
+          longitude: record.checkInLongitude || null,
+          checkOutLatitude: record.checkOutLatitude || null,
+          checkOutLongitude: record.checkOutLongitude || null,
+        },
+        locationHistory: record.locationHistory || [],
+      });
+    });
+  }
+
+  // ── FILTER RESULT FOR STATUS FILTERS ──────────────────────────────
+  let finalResult = result;
+  if (status) {
+    finalResult = result.filter(r => r.status === status);
+  }
+
+  // ── SORT ──────────────────────────────────────────────────────────
+  finalResult.sort((a, b) => {
+    const dateDiff = new Date(a.date) - new Date(b.date);
+    if (dateDiff !== 0) return dateDiff;
+    return (a.employeeCode || '').localeCompare(b.employeeCode || '');
+  });
+
+  // ── PAGINATE THE COMBINED RESULT ─────────────────────────────────
+  const totalCombined = shouldSynthesize ? finalResult.length : dbCount;
+  const paginatedResult = shouldSynthesize ? finalResult.slice(skip, skip + limitNum) : finalResult;
 
   // ── CONSISTENT API RESPONSE ─────────────────────────────────────
   res.status(200).json({
     success: true,
-    data: result,
+    data: paginatedResult,
     pagination: {
       page: pageNum,
       limit: limitNum,
-      total: totalRecords,
-      totalPages: Math.ceil(totalRecords / limitNum),
+      total: totalCombined,
+      totalPages: Math.ceil(totalCombined / limitNum),
     },
     message: 'Attendance records fetched successfully',
   });
