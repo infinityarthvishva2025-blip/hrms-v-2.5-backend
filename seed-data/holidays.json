@@ -1,0 +1,13 @@
+[
+  {
+    "_id": "6a0ab7f5855baf7699053709",
+    "date": "2026-05-01T00:00:00.000Z",
+    "name": "holiday",
+    "type": "National",
+    "description": "tst",
+    "createdBy": "6a03f9af0a85aa4a3e318df5",
+    "createdAt": "2026-05-18T06:55:49.279Z",
+    "updatedAt": "2026-05-18T06:55:49.279Z",
+    "__v": 0
+  }
+]

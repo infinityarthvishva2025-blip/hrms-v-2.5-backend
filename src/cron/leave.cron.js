@@ -12,6 +12,8 @@ const SYSTEM_START_MONTH = 3; // 0-indexed: April = 3
  * - Runs a catch-up pass immediately on startup so missed months are credited.
  * - Schedules a recurring job on the 1st of every month at midnight.
  */
+
+
 export const initLeaveCronJobs = async () => {
   logger.info('🚀 Initializing leave cron jobs...');
 
@@ -21,11 +23,16 @@ export const initLeaveCronJobs = async () => {
   // Scheduled: 00:00 on the 1st of every month
   cron.schedule('0 0 1 * *', async () => {
     logger.info('🗓️ Running scheduled monthly leave accrual (1st of month)...');
-    await processMonthlyLeaveAccrual({ triggeredBy: 'scheduled-cron' });
+    await processMonthlyLeaveAccrual();
   });
+ // processMonthlyLeaveAccrual();
 
   logger.info('✅ Leave cron jobs initialized and scheduled (runs on 1st of each month at 00:00)');
 };
+
+
+
+
 
 /**
  * Build a canonical string key for a month — used for idempotent dedup.

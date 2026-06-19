@@ -47,6 +47,7 @@ const allowedOrigins = [
   'http://192.168.1.45:5173',
 
   'https://hrmsv2.infinityarthvishva.com',
+  ' http://192.168.1.53:5173',
 
   'https://hrms-frontend-smoky-ten.vercel.app',
   'https://tranquil-caramel-4d0998.netlify.app',
@@ -57,12 +58,12 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
-console.log('✅ Allowed Origins:', allowedOrigins);
+// console.log('✅ Allowed Origins:', allowedOrigins);
 
 const corsOptions = {
   origin: function (origin, callback) {
 
-    console.log('🌐 Request Origin:', origin);
+    //console.log('🌐 Request Origin:', origin);
 
     if (!origin) {
       return callback(null, true);
@@ -99,7 +100,7 @@ app.options(/.*/, cors(corsOptions));
 
 // ─────────────────────────────────────────────────────────────
 // BODY PARSERS
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────-------------------------------------->
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -115,7 +116,7 @@ app.use(cookieParser());
 // LOGGING
 // ─────────────────────────────────────────────────────────────
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 

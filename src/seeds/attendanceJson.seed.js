@@ -39,83 +39,107 @@ const __dirname = path.dirname(__filename);
 // ─────────────────────────────────────────────────────────────────────────────
 const ATTENDANCE_JSON_DATA = [
   {
-    employeeCode: "IA00093",
-    date: "2026-05-13",
+    employeeCode: "IA00088",
+    date: "2026-06-05",
     status: "P",
     inTime: "09:49:00", // On time (Shift starts at 09:30)
     outTime: "18:21:00",
     workMode: "Office",
-    todayWork: "1) Corrected the typo suggested by the security team Seated up the account for the CAPTCHA on the google captcha3) Added the captcha verification on the send OTP panel of the cibil page as per suggested by the cyber security team.",
+    todayWork: "",
     pendingWork: "NA",
     issuesFaced: "None"
   },
   //  {
-  //   employeeCode: "IA00019",
-  //   date: "2026-04-25",
+  //   employeeCode: "IA00117",
+  //   date: "2026-05-06",
   //   status: "P",
   //   inTime: "09:49:00", // On time (Shift starts at 09:30)
   //   outTime: "18:21:00",
   //   workMode: "Office",
-  //   todayWork: "1) Corrected the typo suggested by the security team Seated up the account for the CAPTCHA on the google captcha3) Added the captcha verification on the send OTP panel of the cibil page as per suggested by the cyber security team.",
+  //   todayWork: "",
   //   pendingWork: "NA",
   //   issuesFaced: "None"
   // },
   //   {
-  //   employeeCode: "IA00092",
-  //   date: "2026-04-23",
+  //   employeeCode: "IA00117",
+  //   date: "2026-05-08",
   //   status: "P",
   //   inTime: "09:49:00", // On time (Shift starts at 09:30)
   //   outTime: "18:21:00",
   //   workMode: "Office",
-  //   todayWork: "1) Corrected the typo suggested by the security team Seated up the account for the CAPTCHA on the google captcha3) Added the captcha verification on the send OTP panel of the cibil page as per suggested by the cyber security team.",
+  //   todayWork: "",
   //   pendingWork: "NA",
   //   issuesFaced: "None"
   // },
   //     {
-  //   employeeCode: "IA00096",
-  //   date: "2026-05-05",
+  //   employeeCode: "IA00117",
+  //   date: "2026-05-09",
   //   status: "P",
   //   inTime: "09:49:00", // On time (Shift starts at 09:30)
   //   outTime: "18:21:00",
   //   workMode: "Office",
-  //   todayWork: "1) Corrected the typo suggested by the security team Seated up the account for the CAPTCHA on the google captcha3) Added the captcha verification on the send OTP panel of the cibil page as per suggested by the cyber security team.",
+  //   todayWork: "",
   //   pendingWork: "NA",
   //   issuesFaced: "None"
   // },
   //       {
-  //   employeeCode: "IA00096",
-  //   date: "2026-04-30",
+  //   employeeCode: "IA00117",
+  //   date: "2026-04-10",
   //   status: "P",
   //   inTime: "09:49:00", // On time (Shift starts at 09:30)
   //   outTime: "18:21:00",
   //   workMode: "Office",
-  //   todayWork: "1) Corrected the typo suggested by the security team Seated up the account for the CAPTCHA on the google captcha3) Added the captcha verification on the send OTP panel of the cibil page as per suggested by the cyber security team.",
+  //   todayWork: "",
   //   pendingWork: "NA",
   //   issuesFaced: "None"
   // }
   // ,
   //     {
-  //   employeeCode: "IA00145",
-  //   date: "2026-05-18",
+  //   employeeCode: "IA00117",
+  //   date: "2026-05-11",
   //   status: "P",
   //   inTime: "09:49:00", // On time (Shift starts at 09:30)
   //   outTime: "18:21:00",
   //   workMode: "Office",
-  //   todayWork: "1) Corrected the typo suggested by the security team Seated up the account for the CAPTCHA on the google captcha3) Added the captcha verification on the send OTP panel of the cibil page as per suggested by the cyber security team.",
+  //   todayWork: "",
   //   pendingWork: "NA",
   //   issuesFaced: "None"
   // },
   //     {
-  //   employeeCode: "IA00145",
+  //   employeeCode: "IA00117",
+  //   date: "2026-05-13",
+  //   status: "P",
+  //   inTime: "09:49:00", // On time (Shift starts at 09:30)
+  //   outTime: "18:21:00",
+  //   workMode: "Office",
+  //   todayWork: "",
+  //   pendingWork: "NA",
+  //   issuesFaced: "None"
+  // },
+
+  //       {
+  //   employeeCode: "IA00117",
+  //   date: "2026-05-14",
+  //   status: "P",
+  //   inTime: "09:49:00", // On time (Shift starts at 09:30)
+  //   outTime: "18:21:00",
+  //   workMode: "Office",
+  //   todayWork: "",
+  //   pendingWork: "NA",
+  //   issuesFaced: "None"
+  // },
+  //         {
+  //   employeeCode: "IA00117",
   //   date: "2026-05-19",
   //   status: "P",
   //   inTime: "09:49:00", // On time (Shift starts at 09:30)
   //   outTime: "18:21:00",
   //   workMode: "Office",
-  //   todayWork: "1) Corrected the typo suggested by the security team Seated up the account for the CAPTCHA on the google captcha3) Added the captcha verification on the send OTP panel of the cibil page as per suggested by the cyber security team.",
+  //   todayWork: "",
   //   pendingWork: "NA",
   //   issuesFaced: "None"
   // }
+
 
 
 
@@ -133,7 +157,18 @@ const ATTENDANCE_JSON_DATA = [
   //   issuesFaced: "None"
   // },
   // {
-  //   employeeCode: "IA00117",
+  //   employeeCode: "IA00092",
+  //   date: "2026-04-21",
+  //   status: "Half", // Half Day
+  //   inTime: "09:20:00",
+  //   outTime: "13:50:00",
+  //   workMode: "Office",
+  //   todayWork: "Conducted review of backend payroll calculation routines.",
+  //   pendingWork: "Implement automated Professional Tax deductions logic.",
+  //   issuesFaced: "Left early due to dental checkup."
+  // },
+  //   {
+  //   employeeCode: "IA00092",
   //   date: "2026-04-22",
   //   status: "Half", // Half Day
   //   inTime: "09:20:00",
@@ -143,6 +178,151 @@ const ATTENDANCE_JSON_DATA = [
   //   pendingWork: "Implement automated Professional Tax deductions logic.",
   //   issuesFaced: "Left early due to dental checkup."
   // },
+  //   {
+  //   employeeCode: "IA00092",
+  //   date: "2026-04-24",
+  //   status: "Half", // Half Day
+  //   inTime: "09:20:00",
+  //   outTime: "13:50:00",
+  //   workMode: "Office",
+  //   todayWork: "Conducted review of backend payroll calculation routines.",
+  //   pendingWork: "Implement automated Professional Tax deductions logic.",
+  //   issuesFaced: "Left early due to dental checkup."
+  // },
+  //   {
+  //   employeeCode: "IA00092",
+  //   date: "2026-04-25",
+  //   status: "Half", // Half Day
+  //   inTime: "09:20:00",
+  //   outTime: "13:50:00",
+  //   workMode: "Office",
+  //   todayWork: "Conducted review of backend payroll calculation routines.",
+  //   pendingWork: "Implement automated Professional Tax deductions logic.",
+  //   issuesFaced: "Left early due to dental checkup."
+  // },
+  //   {
+  //   employeeCode: "IA00092",
+  //   date: "2026-04-27",
+  //   status: "Half", // Half Day
+  //   inTime: "09:20:00",
+  //   outTime: "13:50:00",
+  //   workMode: "Office",
+  //   todayWork: "Conducted review of backend payroll calculation routines.",
+  //   pendingWork: "Implement automated Professional Tax deductions logic.",
+  //   issuesFaced: "Left early due to dental checkup."
+  // },
+  //   {
+  //   employeeCode: "IA00092",
+  //   date: "2026-04-28",
+  //   status: "Half", // Half Day
+  //   inTime: "09:20:00",
+  //   outTime: "13:50:00",
+  //   workMode: "Office",
+  //   todayWork: "Conducted review of backend payroll calculation routines.",
+  //   pendingWork: "Implement automated Professional Tax deductions logic.",
+  //   issuesFaced: "Left early due to dental checkup."
+  // },
+  //   {
+  //   employeeCode: "IA00092",
+  //   date: "2026-04-29",
+  //   status: "Half", // Half Day
+  //   inTime: "09:20:00",
+  //   outTime: "13:50:00",
+  //   workMode: "Office",
+  //   todayWork: "Conducted review of backend payroll calculation routines.",
+  //   pendingWork: "Implement automated Professional Tax deductions logic.",
+  //   issuesFaced: "Left early due to dental checkup."
+  // },
+  //   {
+  //   employeeCode: "IA00092",
+  //   date: "2026-04-30",
+  //   status: "Half", // Half Day
+  //   inTime: "09:20:00",
+  //   outTime: "13:50:00",
+  //   workMode: "Office",
+  //   todayWork: "Conducted review of backend payroll calculation routines.",
+  //   pendingWork: "Implement automated Professional Tax deductions logic.",
+  //   issuesFaced: "Left early due to dental checkup."
+  // },
+  //   {
+  //   employeeCode: "IA00142",
+  //   date: "2026-05-04",
+  //   status: "Half", // Half Day
+  //   inTime: "09:20:00",
+  //   outTime: "13:50:00",
+  //   workMode: "Office",
+  //   todayWork: "Conducted review of backend payroll calculation routines.",
+  //   pendingWork: "Implement automated Professional Tax deductions logic.",
+  //   issuesFaced: "Left early due to dental checkup."
+  // },
+  //   {
+  //   employeeCode: "IA00142",
+  //   date: "2026-05-05",
+  //   status: "Half", // Half Day
+  //   inTime: "09:20:00",
+  //   outTime: "13:50:00",
+  //   workMode: "Office",
+  //   todayWork: "Conducted review of backend payroll calculation routines.",
+  //   pendingWork: "Implement automated Professional Tax deductions logic.",
+  //   issuesFaced: "Left early due to dental checkup."
+  // },
+  //     {
+  //   employeeCode: "IA00117",
+  //   date: "2026-05-19",
+  //   status: "Half", // Half Day
+  //   inTime: "09:20:00",
+  //   outTime: "13:50:00",
+  //   workMode: "Office",
+  //   todayWork: "Conducted review of backend payroll calculation routines.",
+  //   pendingWork: "Implement automated Professional Tax deductions logic.",
+  //   issuesFaced: "Left early due to dental checkup."
+  // },
+  //     {
+  //   employeeCode: "IA00142",
+  //   date: "2026-05-07",
+  //   status: "Half", // Half Day
+  //   inTime: "09:20:00",
+  //   outTime: "13:50:00",
+  //   workMode: "Office",
+  //   todayWork: "Conducted review of backend payroll calculation routines.",
+  //   pendingWork: "Implement automated Professional Tax deductions logic.",
+  //   issuesFaced: "Left early due to dental checkup."
+  // },
+  //     {
+  //   employeeCode: "IA00092",
+  //   date: "2026-05-12",
+  //   status: "Half", // Half Day
+  //   inTime: "09:20:00",
+  //   outTime: "13:50:00",
+  //   workMode: "Office",
+  //   todayWork: "Conducted review of backend payroll calculation routines.",
+  //   pendingWork: "Implement automated Professional Tax deductions logic.",
+  //   issuesFaced: "Left early due to dental checkup."
+  // },
+  //     {
+  //   employeeCode: "IA00092",
+  //   date: "2026-05-15",
+  //   status: "Half", // Half Day
+  //   inTime: "09:20:00",
+  //   outTime: "13:50:00",
+  //   workMode: "Office",
+  //   todayWork: "Conducted review of backend payroll calculation routines.",
+  //   pendingWork: "Implement automated Professional Tax deductions logic.",
+  //   issuesFaced: "Left early due to dental checkup."
+  // },
+  //       {
+  //   employeeCode: "IA00092",
+  //   date: "2026-05-19",
+  //   status: "Half", // Half Day
+  //   inTime: "09:20:00",
+  //   outTime: "13:50:00",
+  //   workMode: "Office",
+  //   todayWork: "Conducted review of backend payroll calculation routines.",
+  //   pendingWork: "Implement automated Professional Tax deductions logic.",
+  //   issuesFaced: "Left early due to dental checkup."
+  // },
+  
+  
   // {
   //   employeeCode: "IA00093",
   //   date: "2026-05-14",
@@ -151,54 +331,79 @@ const ATTENDANCE_JSON_DATA = [
   // },
 
   //   {
-  //   employeeCode: "IA00107",
-  //   date: "2026-04-22",
-  //   status: "A", // Leave
+  //   employeeCode: "IA00145",
+  //   date: "2026-05-15",
+  //   status: "L", // Leave
   //   // workMode: "Office"
   // },
   //     {
-  //   employeeCode: "IA00090",
-  //   date: "2026-05-03",
+  //   employeeCode: "IA00145",
+  //   date: "2026-05-16",
+  //   status: "L", // Leave
+  //   // workMode: "Office"
+  // },
+  //     {
+  //   employeeCode: "IA00145",
+  //   date: "2026-05-18",
+  //   status: "L", // Leave
+  //   // workMode: "Office"
+  // },
+  //     {
+  //   employeeCode: "IA00145",
+  //   date: "2026-05-19",
+  //   status: "L", // Leave
+  //   // workMode: "Office"
+  // },
+  //     {
+  //   employeeCode: "IA00117",
+  //   date: "2026-05-05",
   //   status: "A", // Leave
   //   // workMode: "Office"
   // },
 
   // {
-  //   employeeCode: "IA00116",
-  //   date: "2026-05-16",
+  //   employeeCode: "IA00117",
+  //   date: "2026-05-06",
   //   status: "A", // Leave
   //   // workMode: "Office"
   // },
   // {
-  //   employeeCode: "IA00116",
-  //   date: "2026-05-18",
+  //   employeeCode: "IA00117",
+  //   date: "2026-05-08",
   //   status: "A", // Leave
   //   // workMode: "Office"
   // },
   //   {
-  //   employeeCode: "IA00114",
+  //   employeeCode: "IA00117",
+  //   date: "2026-05-09",
+  //   status: "A", // Leave
+  //   // workMode: "Office"
+  // },
+  //   {
+  //   employeeCode: "IA00117",
+  //   date: "2026-05-10",
+  //   status: "A", // Leave
+  //   // workMode: "Office"
+  // },
+  //     {
+  //   employeeCode: "IA00117",
+  //   date: "2026-05-11",
+  //   status: "A", // Leave
+  //   // workMode: "Office"
+  // },
+  //     {
+  //   employeeCode: "IA00117",
+  //   date: "2026-05-13",
+  //   status: "A", // Leave
+  //   // workMode: "Office"
+  // },
+  //       {
+  //   employeeCode: "IA00117",
   //   date: "2026-05-14",
   //   status: "A", // Leave
   //   // workMode: "Office"
   // },
-  //   {
-  //   employeeCode: "IA00114",
-  //   date: "2026-05-15",
-  //   status: "A", // Leave
-  //   // workMode: "Office"
-  // },
-  //     {
-  //   employeeCode: "IA00114",
-  //   date: "2026-05-16",
-  //   status: "A", // Leave
-  //   // workMode: "Office"
-  // },
-  //     {
-  //   employeeCode: "IA00114",
-  //   date: "2026-05-18",
-  //   status: "A", // Leave
-  //   // workMode: "Office"
-  // },
+
 
 
 

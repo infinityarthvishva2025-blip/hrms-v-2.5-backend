@@ -1,0 +1,62 @@
+[
+  {
+    "_id": "6a03f9af0a85aa4a3e318df5",
+    "specialId": "IAHR001",
+    "password": "$2a$12$u3tp6MSZe2X8uKmwe3MHQeQFBAklXPa1furaf80ReA1gUb86AmjQG",
+    "role": "HR",
+    "name": "HR Department",
+    "status": "Active",
+    "createdAt": "2026-05-13T04:10:23.848Z",
+    "updatedAt": "2026-06-19T10:10:13.974Z",
+    "__v": 0,
+    "refreshToken": null
+  },
+  {
+    "_id": "6a0c302471a4067ec805deba",
+    "specialId": "IAGM001",
+    "password": "$2a$12$yDt8vdCJaBeNTZA2a1TDOudgsrKzFMJgjYErWRuJsbyN0Kxii4FUu",
+    "role": "GM",
+    "name": "General Manager",
+    "status": "Active",
+    "createdAt": "2026-05-19T09:40:52.420Z",
+    "updatedAt": "2026-05-27T13:20:31.862Z",
+    "__v": 0,
+    "refreshToken": null
+  },
+  {
+    "_id": "6a0c303d71a4067ec805dec0",
+    "specialId": "IAVP001",
+    "password": "$2a$12$E1k55d/Ro26UIkabIz4AlOaP28XzV4Xo9YvV91iIkB1pTZQPZ/spa",
+    "role": "VP",
+    "name": "Vice President",
+    "status": "Active",
+    "createdAt": "2026-05-19T09:41:17.141Z",
+    "updatedAt": "2026-05-27T13:22:25.180Z",
+    "__v": 0,
+    "refreshToken": null
+  },
+  {
+    "_id": "6a0c306071a4067ec805dec6",
+    "specialId": "IADI001",
+    "password": "$2a$12$1d3y4EhtK2JYHJk8SfG0BO7Gur8oo5TJzD8pkTJ3KNB3MRJPMlmMG",
+    "role": "Director",
+    "name": "Director",
+    "status": "Active",
+    "createdAt": "2026-05-19T09:41:52.882Z",
+    "updatedAt": "2026-05-27T13:26:18.949Z",
+    "__v": 0,
+    "refreshToken": null
+  },
+  {
+    "_id": "6a1140167ff21796b2bfffcd",
+    "specialId": "IAHR002",
+    "password": "$2a$12$9Wunw1ZfSyHJxEFMKisI5OaWat9fGww72HcLLcAmVFg5V/uSQfxA2",
+    "role": "HR",
+    "name": "HR Department-2",
+    "status": "Active",
+    "createdAt": "2026-05-23T05:50:14.500Z",
+    "updatedAt": "2026-06-19T10:10:28.320Z",
+    "__v": 0,
+    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJfaWQiOiI2YTExNDAxNjdmZjIxNzk2YjJiZmZmY2QiLCJpYXQiOjE3ODE4NjM4MjgsImV4cCI6MTc4MjQ2ODYyOH0.4AhhjsGHKwzKDtDmimZvLynsfi-2lccv_wvi_oKGfKg"
+  }
+]
