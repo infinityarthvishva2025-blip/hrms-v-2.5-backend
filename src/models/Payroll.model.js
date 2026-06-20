@@ -21,6 +21,7 @@ const payrollSchema = new mongoose.Schema(
     workingDays: { type: Number, default: 0 },
     presentDays: { type: Number, default: 0 },
     presentDayDetails: [{ date: Date, reason: String }], // To track specific present days
+    paidLeaveDetails: [{ date: Date, reason: String }], // To track specific paid leave days
     halfDays: { type: Number, default: 0 },
     halfDayDetails: [{ date: Date, reason: String }], // To track specific half days
     absentDays: { type: Number, default: 0 },
@@ -29,6 +30,8 @@ const payrollSchema = new mongoose.Schema(
     unpaidLeaves: { type: Number, default: 0 },
     holidays: { type: Number, default: 0 },
     weekOffs: { type: Number, default: 0 },
+    sandwichDeductions: { type: Number, default: 0 },
+    sandwichDetails: [{ date: Date, reason: String }],
     leavesTaken: { type: Number, default: 0 }, // Centralized: absentDays + paidLeaves + (halfDays * 0.5)
     paidDays: { type: Number, required: true }, // Total days for which salary is paid
     

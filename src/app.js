@@ -48,6 +48,7 @@ const allowedOrigins = [
 
   'https://hrmsv2.infinityarthvishva.com',
   ' http://192.168.1.53:5173',
+  "http://192.168.1.53:5173",
 
   'https://hrms-frontend-smoky-ten.vercel.app',
   'https://tranquil-caramel-4d0998.netlify.app',
