@@ -6,7 +6,8 @@
   "main": "src/app.js",
   "scripts": {
     "dev": "nodemon src/app.js",
-    "start": "node src/app.js"
+    "start": "node src/app.js",
+    "export-db": "node src/scripts/export-data.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

@@ -39,8 +39,8 @@ const __dirname = path.dirname(__filename);
 // ─────────────────────────────────────────────────────────────────────────────
 const ATTENDANCE_JSON_DATA = [
   {
-    employeeCode: "IA00088",
-    date: "2026-06-05",
+    employeeCode: "IA00092",
+    date: "2026-06-08",
     status: "P",
     inTime: "09:49:00", // On time (Shift starts at 09:30)
     outTime: "18:21:00",
@@ -50,8 +50,8 @@ const ATTENDANCE_JSON_DATA = [
     issuesFaced: "None"
   },
   //  {
-  //   employeeCode: "IA00117",
-  //   date: "2026-05-06",
+  //   employeeCode: "IA00029",
+  //   date: "2026-06-17",
   //   status: "P",
   //   inTime: "09:49:00", // On time (Shift starts at 09:30)
   //   outTime: "18:21:00",
@@ -61,8 +61,8 @@ const ATTENDANCE_JSON_DATA = [
   //   issuesFaced: "None"
   // },
   //   {
-  //   employeeCode: "IA00117",
-  //   date: "2026-05-08",
+  //   employeeCode: "IA00029",
+  //   date: "2026-06-18",
   //   status: "P",
   //   inTime: "09:49:00", // On time (Shift starts at 09:30)
   //   outTime: "18:21:00",
@@ -311,8 +311,8 @@ const ATTENDANCE_JSON_DATA = [
   //   issuesFaced: "Left early due to dental checkup."
   // },
   //       {
-  //   employeeCode: "IA00092",
-  //   date: "2026-05-19",
+  //   employeeCode: "IA00004",
+  //   date: "2026-06-01",
   //   status: "Half", // Half Day
   //   inTime: "09:20:00",
   //   outTime: "13:50:00",

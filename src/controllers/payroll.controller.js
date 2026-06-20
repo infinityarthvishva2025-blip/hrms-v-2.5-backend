@@ -112,21 +112,27 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
   // toDate is set to 23:59:59 on the last day, so we floor the difference then add 1.
   const totalDaysInRange = Math.floor((toDate - fromDate) / (1000 * 60 * 60 * 24)) + 1;
 
-  // ── FETCH ATTENDANCE, HOLIDAYS & APPROVED LEAVES ──
+  // Calculate extended range for sandwich checking
+  const extendedFromDate = new Date(fromDate);
+  extendedFromDate.setUTCDate(extendedFromDate.getUTCDate() - 10);
+  const extendedToDate = new Date(toDate);
+  extendedToDate.setUTCDate(extendedToDate.getUTCDate() + 10);
+
+  // ── FETCH ATTENDANCE, HOLIDAYS & APPROVED LEAVES (EXTENDED FOR SANDWICH CHECK) ──
   const [attendanceRecords, holidayRecords, approvedLeaves] = await Promise.all([
     Attendance.find({
       employeeId,
-      date: { $gte: fromDate, $lte: toDate }
+      date: { $gte: extendedFromDate, $lte: extendedToDate }
     }),
     Holiday.find({
-      date: { $gte: fromDate, $lte: toDate }
+      date: { $gte: extendedFromDate, $lte: extendedToDate }
     }),
     // Only fetch leaves that have been fully approved
     Leave.find({
       employeeId,
       overallStatus: 'Approved',
-      startDate: { $lte: toDate },
-      endDate: { $gte: fromDate }
+      startDate: { $lte: extendedToDate },
+      endDate: { $gte: extendedFromDate }
     })
   ]);
 
@@ -134,7 +140,6 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
     present: 0,
     half: 0,
     absent: 0,
-    paidLeave: 0,
     holiday: 0,
     weekOff: 0
   };
@@ -148,6 +153,125 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
   };
 
+  // Status cache for extended range
+  const statusCache = {};
+
+  const getDayStatus = (d) => {
+    const dStr = getUTCDateStr(d);
+    if (statusCache[dStr]) return statusCache[dStr];
+
+    const isSunday = d.getUTCDay() === 0;
+    const isHolid = holidayRecords.some(h => getUTCDateStr(h.date) === dStr);
+
+    const record = attendanceRecords.find(r => getUTCDateStr(r.date) === dStr);
+    
+    // Check if employee worked on Sunday/Holiday
+    if (record && (record.status === 'P' || record.status === 'Half' || record.status === 'Coff')) {
+      if (record.status === 'Coff') {
+        statusCache[dStr] = 'PRESENT';
+        return 'PRESENT';
+      }
+      const workedMins = record.totalMinutes || Math.round((record.totalHours || 0) * 60);
+      const evalResult = evaluateWorkingMinutes(d, workedMins);
+      if (evalResult.isFullDay && record.status !== 'Half') {
+        statusCache[dStr] = 'PRESENT';
+        return 'PRESENT';
+      } else if (evalResult.isHalfDay || record.status === 'Half') {
+        statusCache[dStr] = 'HALF';
+        return 'HALF';
+      }
+    }
+
+    if (isSunday || isHolid) {
+      statusCache[dStr] = 'WO_HOLIDAY';
+      return 'WO_HOLIDAY';
+    }
+
+    if (record) {
+      if (record.status === 'P' || record.status === 'Half' || record.status === 'Coff') {
+        if (record.status === 'Coff') {
+          statusCache[dStr] = 'PRESENT';
+          return 'PRESENT';
+        }
+        const workedMins = record.totalMinutes || Math.round((record.totalHours || 0) * 60);
+        const evalResult = evaluateWorkingMinutes(d, workedMins);
+        if (evalResult.isFullDay && record.status !== 'Half') {
+          statusCache[dStr] = 'PRESENT';
+          return 'PRESENT';
+        } else if (evalResult.isHalfDay || record.status === 'Half') {
+          statusCache[dStr] = 'HALF';
+          return 'HALF';
+        } else {
+          statusCache[dStr] = 'LEAVE_ABSENT';
+          return 'LEAVE_ABSENT';
+        }
+      } else if (['Paid', 'Sick', 'Casual', 'Earned', 'CompOff', 'L'].includes(record.status)) {
+        const hasApprovedLeave = approvedLeaves.some(leave => {
+          const leaveStart = getUTCDateStr(leave.startDate);
+          const leaveEnd = getUTCDateStr(leave.endDate);
+          return dStr >= leaveStart && dStr <= leaveEnd;
+        });
+
+        if (hasApprovedLeave) {
+          statusCache[dStr] = 'LEAVE_ABSENT';
+          return 'LEAVE_ABSENT';
+        } else {
+          statusCache[dStr] = 'LEAVE_ABSENT';
+          return 'LEAVE_ABSENT';
+        }
+      } else {
+        statusCache[dStr] = 'LEAVE_ABSENT';
+        return 'LEAVE_ABSENT';
+      }
+    } else {
+      statusCache[dStr] = 'LEAVE_ABSENT';
+      return 'LEAVE_ABSENT';
+    }
+  };
+
+  // Pre-fill cache
+  let tempDate = new Date(extendedFromDate);
+  while (tempDate <= extendedToDate) {
+    getDayStatus(tempDate);
+    tempDate.setUTCDate(tempDate.getUTCDate() + 1);
+  }
+
+  const isSandwiched = (d) => {
+    if (getDayStatus(d) !== 'WO_HOLIDAY') {
+      return false;
+    }
+
+    // Search backwards
+    let leftStatus = null;
+    let tempLeft = new Date(d);
+    while (true) {
+      tempLeft.setUTCDate(tempLeft.getUTCDate() - 1);
+      if (tempLeft < extendedFromDate) break;
+      const status = getDayStatus(tempLeft);
+      if (status !== 'WO_HOLIDAY') {
+        leftStatus = status;
+        break;
+      }
+    }
+
+    // Search forwards
+    let rightStatus = null;
+    let tempRight = new Date(d);
+    while (true) {
+      tempRight.setUTCDate(tempRight.getUTCDate() + 1);
+      if (tempRight > extendedToDate) break;
+      const status = getDayStatus(tempRight);
+      if (status !== 'WO_HOLIDAY') {
+        rightStatus = status;
+        break;
+      }
+    }
+
+    return leftStatus === 'LEAVE_ABSENT' && rightStatus === 'LEAVE_ABSENT';
+  };
+
+  const sandwichDetails = [];
+
   let current = new Date(fromDate);
   while (current <= toDate) {
     const dStr = getUTCDateStr(current);
@@ -157,8 +281,20 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
 
     if (isSunday) {
       summary.weekOff++;
+      if (isSandwiched(current)) {
+        sandwichDetails.push({
+          date: new Date(current),
+          reason: 'Weekly Off (Sandwiched)'
+        });
+      }
     } else if (isHolid) {
       summary.holiday++;
+      if (isSandwiched(current)) {
+        sandwichDetails.push({
+          date: new Date(current),
+          reason: 'Holiday (Sandwiched)'
+        });
+      }
     } else if (record) {
       if (record.status === 'P' || record.status === 'Half' || record.status === 'Coff') {
         if (record.status === 'Coff') {
@@ -192,25 +328,18 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
           }
         }
       } else if (['Paid', 'Sick', 'Casual', 'Earned', 'CompOff', 'L'].includes(record.status)) {
-        // Issue 5 fix: Only count as paid leave if there is a corresponding approved Leave record
-        // that covers this date. Otherwise treat it as absent (LWP).
+        // All leave types (approved or not) count as absent — no salary credit for leaves.
         const currentDateStr = getUTCDateStr(current);
         const hasApprovedLeave = approvedLeaves.some(leave => {
           const leaveStart = getUTCDateStr(leave.startDate);
           const leaveEnd = getUTCDateStr(leave.endDate);
           return currentDateStr >= leaveStart && currentDateStr <= leaveEnd;
         });
-
-        if (hasApprovedLeave) {
-          summary.paidLeave++;
-          presentDayDetails.push({
-            date: new Date(current),
-            reason: `Approved Leave (${record.status})`
-          });
-        } else {
-          summary.absent++;
-          absentDayDetails.push({ date: new Date(current), reason: `Unapproved Leave (${record.status})` });
-        }
+        const leaveLabel = hasApprovedLeave
+          ? `Leave (${record.status}) — Approved`
+          : `Leave (${record.status}) — Unapproved / LWP`;
+        summary.absent++;
+        absentDayDetails.push({ date: new Date(current), reason: leaveLabel });
       } else {
         summary.absent++;
         absentDayDetails.push({ date: new Date(current), reason: `Status: ${record.status}` });
@@ -222,27 +351,21 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
     current.setUTCDate(current.getUTCDate() + 1);
   }
 
-  const paidDays = summary.present + (summary.half * 0.5) + summary.paidLeave + summary.weekOff + summary.holiday;
+  const sandwichDeductions = sandwichDetails.length;
+  // paidDays: present + half-days + week-offs + holidays minus any sandwich deductions.
+  // Leaves are NOT included — all leave types are treated as absent (LWP).
+  const paidDays = summary.present + (summary.half * 0.5) + summary.weekOff + summary.holiday - sandwichDeductions;
   const baseSalary = employee.salary || 0;
   
-  // Use the actual days in the range as the divisor if it represents a full month cycle (>= 28 days)
-  // Otherwise, use 30 as a standard divisor for partial month calculations.
   const divisor = totalDaysInRange >= 28 ? totalDaysInRange : 30;
   const dailyRate = baseSalary / divisor;
   const grossEarnings = parseFloat((dailyRate * paidDays).toFixed(2));
 
-  // Issue 3 fix: PT must be calculated on baseSalary (employee CTC), NOT on grossEarnings.
-  // Using grossEarnings caused employees with high salaries who had absences to be
-  // incorrectly bucketed into lower PT tiers (e.g., ₹175 instead of ₹200).
   const professionalTax = calculatePT(baseSalary, employee.gender, toDate.getUTCMonth());
   const netSalary = Math.max(0, grossEarnings - professionalTax);
 
-  // Derived "leaves taken" = actual non-working days that count against the employee
-  // (absent + paid leaves + half-day deductions). Used by frontend for consistency.
-  const leavesTaken = summary.absent + (summary.half * 0.5);
-
-  // // ── DEBUG AUDIT LOG ──
-  // console.log(`[Payroll] ${employee.employeeCode} | Total: ${totalDaysInRange} | P: ${summary.present} | H: ${summary.half} | A: ${summary.absent} | PL: ${summary.paidLeave} | WO: ${summary.weekOff} | HL: ${summary.holiday} | PaidDays: ${paidDays} | Leaves: ${leavesTaken} | Gross: ${grossEarnings} | PT: ${professionalTax} | Net: ${netSalary}`);
+  // leavesTaken = all absent days (includes all leave types) + half-day deductions + sandwich deductions
+  const leavesTaken = summary.absent + (summary.half * 0.5) + sandwichDeductions;
 
   return await Payroll.findOneAndUpdate(
     { employeeId, month: targetMonth, year: targetYear },
@@ -257,10 +380,12 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
       halfDayDetails,
       absentDays: summary.absent,
       absentDayDetails,
-      paidLeaves: summary.paidLeave,
-      unpaidLeaves: summary.absent,
+      paidLeaves: 0,           // deprecated — all leaves are now absent
+      unpaidLeaves: summary.absent + sandwichDeductions,
       holidays: summary.holiday,
       weekOffs: summary.weekOff,
+      sandwichDeductions,
+      sandwichDetails,
       paidDays, baseSalary, grossEarnings, professionalTax, netSalary,
       leavesTaken,
       status: 'Processed',
@@ -268,7 +393,7 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
     },
     { upsert: true, new: true }
   );
-};
+}
 
 // ─── GENERATE PAYROLL ENDPOINT ───────────────────────────────────────────────
 
@@ -496,8 +621,8 @@ export const getSalarySlip = asyncHandler(async (req, res) => {
   doc.text(`${payroll.paidDays || 0}`, 130, attY + 25);
   doc.text(`${payroll.presentDays || 0}`, 210, attY + 25);
   doc.text(`${payroll.halfDays || 0}`, 290, attY + 25);
-  doc.text(`${(payroll.paidLeaves || 0) + (payroll.holidays || 0) + (payroll.weekOffs || 0)}`, 370, attY + 25);
-  doc.text(`${payroll.absentDays || 0}`, 450, attY + 25);
+  doc.text(`${(payroll.paidLeaves || 0) + (payroll.holidays || 0) + (payroll.weekOffs || 0) - (payroll.sandwichDeductions || 0)}`, 370, attY + 25);
+  doc.text(`${payroll.unpaidLeaves || 0}`, 450, attY + 25);
 
   doc.moveDown(3);
 
@@ -562,6 +687,12 @@ export const getSalarySlip = asyncHandler(async (req, res) => {
   // NET SALARY IN WORDS
   doc.fillColor('black').font('Helvetica').fontSize(9);
   doc.text(`Amount In Words: Rupees ${convertNumberToWords(Math.round(payroll.netSalary || 0))} Only`, 40, netY + 40);
+
+  if (payroll.sandwichDeductions > 0) {
+    doc.fillColor('#ef4444').font('Helvetica-Bold').fontSize(8);
+    doc.text(`Note: ${payroll.sandwichDeductions} day(s) of Sandwich Leave Deduction applied.`, 40, netY + 55);
+    doc.fillColor('black');
+  }
 
   // --- FOOTER & SIGNATURE ---
   let footY = doc.y + 60;
