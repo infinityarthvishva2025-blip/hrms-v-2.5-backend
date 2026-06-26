@@ -634,6 +634,42 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
   );
 }
 
+export const generatePayroll = asyncHandler(async (req, res) => {
+  const { employeeId, month, year, startDate, endDate } = req.body;
+  if (!employeeId) throw new ApiError(400, 'employeeId is required');
+
+  const isManagement = ['SuperUser', 'HR', 'Director', 'VP', 'GM', 'Manager'].includes(req.user.role);
+  if (!isManagement && req.user._id.toString() !== employeeId) {
+    throw new ApiError(403, 'You are not authorized to generate payroll for other employees.');
+  }
+
+  let fromDate, toDate;
+  let targetMonth, targetYear;
+
+  if (startDate && endDate) {
+    // Force UTC midnight to prevent timezone-related day shifts during generation
+    fromDate = new Date(`${startDate}T00:00:00Z`);
+    toDate = new Date(`${endDate}T23:59:59Z`);
+    targetMonth = toDate.getUTCMonth() + 1;
+    targetYear = toDate.getUTCFullYear();
+  } else if (month && year) {
+    // Default cycle (21st to 20th) logic in UTC
+    fromDate = new Date(Date.UTC(year, month - 2, 21, 0, 0, 0));
+    toDate = new Date(Date.UTC(year, month - 1, 20, 23, 59, 59));
+    targetMonth = month;
+    targetYear = year;
+  } else {
+    throw new ApiError(400, 'Either startDate/endDate or month/year is required');
+  }
+
+  const payroll = await processSingleEmployeePayroll({
+    employeeId, fromDate, toDate, targetMonth, targetYear, processedBy: req.user._id
+  });
+
+  if (!payroll) throw new ApiError(404, 'Employee not found');
+  res.status(200).json(new ApiResponse(200, payroll, 'Payroll generated successfully'));
+});
+
 // ─── GENERATE ALL PAYROLL (BULK) ─────────────────────────────────────────────
 
 export const generateAllPayroll = asyncHandler(async (req, res) => {
