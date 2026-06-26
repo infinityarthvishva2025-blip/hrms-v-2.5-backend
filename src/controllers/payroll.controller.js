@@ -103,6 +103,298 @@ const calculatePT = (baseSalary, gender, month) => {
 
 // ─── GENERATE PAYROLL (HELPER FOR SINGLE EMPLOYEE) ──────────────────────────
 
+// export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDate, targetMonth, targetYear, processedBy }) => {
+//   const employee = await Employee.findById(employeeId);
+//   if (!employee) return null;
+
+//   // Total days in range is inclusive: count every calendar day from fromDate to toDate.
+//   // We add 1 because both endpoints are included (e.g. Mar 21 → Apr 20 = 31 days, not 30).
+//   // toDate is set to 23:59:59 on the last day, so we floor the difference then add 1.
+//   const totalDaysInRange = Math.floor((toDate - fromDate) / (1000 * 60 * 60 * 24)) + 1;
+
+//   // Calculate extended range for sandwich checking
+//   const extendedFromDate = new Date(fromDate);
+//   extendedFromDate.setUTCDate(extendedFromDate.getUTCDate() - 10);
+//   const extendedToDate = new Date(toDate);
+//   extendedToDate.setUTCDate(extendedToDate.getUTCDate() + 10);
+
+//   // ── FETCH ATTENDANCE, HOLIDAYS & APPROVED LEAVES (EXTENDED FOR SANDWICH CHECK) ──
+//   const [attendanceRecords, holidayRecords, approvedLeaves] = await Promise.all([
+//     Attendance.find({
+//       employeeId,
+//       date: { $gte: extendedFromDate, $lte: extendedToDate }
+//     }),
+//     Holiday.find({
+//       date: { $gte: extendedFromDate, $lte: extendedToDate }
+//     }),
+//     // Only fetch leaves that have been fully approved
+//     Leave.find({
+//       employeeId,
+//       overallStatus: 'Approved',
+//       startDate: { $lte: extendedToDate },
+//       endDate: { $gte: extendedFromDate }
+//     })
+//   ]);
+
+//   const summary = {
+//     present: 0,
+//     half: 0,
+//     absent: 0,
+//     holiday: 0,
+//     weekOff: 0
+//   };
+
+//   const halfDayDetails = [];
+//   const absentDayDetails = [];
+//   const presentDayDetails = [];
+
+//   const getUTCDateStr = (date) => {
+//     const d = new Date(date);
+//     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+//   };
+
+//   // Status cache for extended range
+//   const statusCache = {};
+
+//   const getDayStatus = (d) => {
+//     const dStr = getUTCDateStr(d);
+//     if (statusCache[dStr]) return statusCache[dStr];
+
+//     const isSunday = d.getUTCDay() === 0;
+//     const isHolid = holidayRecords.some(h => getUTCDateStr(h.date) === dStr);
+
+//     const record = attendanceRecords.find(r => getUTCDateStr(r.date) === dStr);
+    
+//     // Check if employee worked on Sunday/Holiday
+//     if (record && (record.status === 'P' || record.status === 'Half' || record.status === 'Coff')) {
+//       if (record.status === 'Coff') {
+//         statusCache[dStr] = 'PRESENT';
+//         return 'PRESENT';
+//       }
+//       const workedMins = record.totalMinutes || Math.round((record.totalHours || 0) * 60);
+//       const evalResult = evaluateWorkingMinutes(d, workedMins);
+//       if (evalResult.isFullDay && record.status !== 'Half') {
+//         statusCache[dStr] = 'PRESENT';
+//         return 'PRESENT';
+//       } else if (evalResult.isHalfDay || record.status === 'Half') {
+//         statusCache[dStr] = 'HALF';
+//         return 'HALF';
+//       }
+//     }
+
+//     if (isSunday || isHolid) {
+//       statusCache[dStr] = 'WO_HOLIDAY';
+//       return 'WO_HOLIDAY';
+//     }
+
+//     if (record) {
+//       if (record.status === 'P' || record.status === 'Half' || record.status === 'Coff') {
+//         if (record.status === 'Coff') {
+//           statusCache[dStr] = 'PRESENT';
+//           return 'PRESENT';
+//         }
+//         const workedMins = record.totalMinutes || Math.round((record.totalHours || 0) * 60);
+//         const evalResult = evaluateWorkingMinutes(d, workedMins);
+//         if (evalResult.isFullDay && record.status !== 'Half') {
+//           statusCache[dStr] = 'PRESENT';
+//           return 'PRESENT';
+//         } else if (evalResult.isHalfDay || record.status === 'Half') {
+//           statusCache[dStr] = 'HALF';
+//           return 'HALF';
+//         } else {
+//           statusCache[dStr] = 'LEAVE_ABSENT';
+//           return 'LEAVE_ABSENT';
+//         }
+//       } else if (['Paid', 'Sick', 'Casual', 'Earned', 'CompOff', 'L'].includes(record.status)) {
+//         const hasApprovedLeave = approvedLeaves.some(leave => {
+//           const leaveStart = getUTCDateStr(leave.startDate);
+//           const leaveEnd = getUTCDateStr(leave.endDate);
+//           return dStr >= leaveStart && dStr <= leaveEnd;
+//         });
+
+//         if (hasApprovedLeave) {
+//           statusCache[dStr] = 'LEAVE_ABSENT';
+//           return 'LEAVE_ABSENT';
+//         } else {
+//           statusCache[dStr] = 'LEAVE_ABSENT';
+//           return 'LEAVE_ABSENT';
+//         }
+//       } else {
+//         statusCache[dStr] = 'LEAVE_ABSENT';
+//         return 'LEAVE_ABSENT';
+//       }
+//     } else {
+//       statusCache[dStr] = 'LEAVE_ABSENT';
+//       return 'LEAVE_ABSENT';
+//     }
+//   };
+
+//   // Pre-fill cache
+//   let tempDate = new Date(extendedFromDate);
+//   while (tempDate <= extendedToDate) {
+//     getDayStatus(tempDate);
+//     tempDate.setUTCDate(tempDate.getUTCDate() + 1);
+//   }
+
+//   const isSandwiched = (d) => {
+//     if (getDayStatus(d) !== 'WO_HOLIDAY') {
+//       return false;
+//     }
+
+//     // Search backwards
+//     let leftStatus = null;
+//     let tempLeft = new Date(d);
+//     while (true) {
+//       tempLeft.setUTCDate(tempLeft.getUTCDate() - 1);
+//       if (tempLeft < extendedFromDate) break;
+//       const status = getDayStatus(tempLeft);
+//       if (status !== 'WO_HOLIDAY') {
+//         leftStatus = status;
+//         break;
+//       }
+//     }
+
+//     // Search forwards
+//     let rightStatus = null;
+//     let tempRight = new Date(d);
+//     while (true) {
+//       tempRight.setUTCDate(tempRight.getUTCDate() + 1);
+//       if (tempRight > extendedToDate) break;
+//       const status = getDayStatus(tempRight);
+//       if (status !== 'WO_HOLIDAY') {
+//         rightStatus = status;
+//         break;
+//       }
+//     }
+
+//     return leftStatus === 'LEAVE_ABSENT' && rightStatus === 'LEAVE_ABSENT';
+//   };
+
+//   const sandwichDetails = [];
+
+//   let current = new Date(fromDate);
+//   while (current <= toDate) {
+//     const dStr = getUTCDateStr(current);
+//     const record = attendanceRecords.find(r => getUTCDateStr(r.date) === dStr);
+//     const isSunday = current.getUTCDay() === 0; // Use UTC day since fromDate/toDate are UTC
+//     const isHolid = holidayRecords.some(h => getUTCDateStr(h.date) === dStr);
+
+//     if (isSunday) {
+//       summary.weekOff++;
+//       if (isSandwiched(current)) {
+//         sandwichDetails.push({
+//           date: new Date(current),
+//           reason: 'Weekly Off (Sandwiched)'
+//         });
+//       }
+//     } else if (isHolid) {
+//       summary.holiday++;
+//       if (isSandwiched(current)) {
+//         sandwichDetails.push({
+//           date: new Date(current),
+//           reason: 'Holiday (Sandwiched)'
+//         });
+//       }
+//     } else if (record) {
+//       if (record.status === 'P' || record.status === 'Half' || record.status === 'Coff') {
+//         if (record.status === 'Coff') {
+//           summary.present++;
+//           presentDayDetails.push({
+//             date: new Date(current),
+//             reason: 'Compensatory Off (Coff)'
+//           });
+//         } else {
+//           const workedMins = record.totalMinutes || Math.round((record.totalHours || 0) * 60);
+//           const evalResult = evaluateWorkingMinutes(current, workedMins);
+
+//           if (evalResult.isFullDay && record.status !== 'Half') {
+//             summary.present++;
+//             presentDayDetails.push({
+//               date: new Date(current),
+//               reason: `Full Present: Worked ${(record.totalHours || workedMins / 60).toFixed(2)} hrs`
+//             });
+//           } else if (evalResult.isHalfDay || record.status === 'Half') {
+//             summary.half++;
+//             halfDayDetails.push({ 
+//               date: new Date(current), 
+//               reason: `Worked ${record.totalHours || (workedMins / 60).toFixed(2)} hrs (Required: ${evalResult.requiredFullMinutes} min, worked: ${workedMins} min)` 
+//             });
+//           } else {
+//             summary.absent++;
+//             absentDayDetails.push({ 
+//               date: new Date(current), 
+//               reason: `Worked ${record.totalHours || (workedMins / 60).toFixed(2)} hrs (Below half day threshold: ${evalResult.minHalfMinutes} min)` 
+//             });
+//           }
+//         }
+//       } else if (['Paid', 'Sick', 'Casual', 'Earned', 'CompOff', 'L'].includes(record.status)) {
+//         // All leave types (approved or not) count as absent — no salary credit for leaves.
+//         const currentDateStr = getUTCDateStr(current);
+//         const hasApprovedLeave = approvedLeaves.some(leave => {
+//           const leaveStart = getUTCDateStr(leave.startDate);
+//           const leaveEnd = getUTCDateStr(leave.endDate);
+//           return currentDateStr >= leaveStart && currentDateStr <= leaveEnd;
+//         });
+//         const leaveLabel = hasApprovedLeave
+//           ? `Leave (${record.status}) — Approved`
+//           : `Leave (${record.status}) — Unapproved / LWP`;
+//         summary.absent++;
+//         absentDayDetails.push({ date: new Date(current), reason: leaveLabel });
+//       } else {
+//         summary.absent++;
+//         absentDayDetails.push({ date: new Date(current), reason: `Status: ${record.status}` });
+//       }
+//     } else {
+//       summary.absent++;
+//       absentDayDetails.push({ date: new Date(current), reason: 'No Check-in' });
+//     }
+//     current.setUTCDate(current.getUTCDate() + 1);
+//   }
+
+//   const sandwichDeductions = sandwichDetails.length;
+//   // paidDays: present + half-days + week-offs + holidays minus any sandwich deductions.
+//   // Leaves are NOT included — all leave types are treated as absent (LWP).
+//   const paidDays = summary.present + (summary.half * 0.5) + summary.weekOff + summary.holiday - sandwichDeductions;
+//   const baseSalary = employee.salary || 0;
+  
+//   const divisor = totalDaysInRange >= 28 ? totalDaysInRange : 30;
+//   const dailyRate = baseSalary / divisor;
+//   const grossEarnings = parseFloat((dailyRate * paidDays).toFixed(2));
+
+//   const professionalTax = calculatePT(baseSalary, employee.gender, toDate.getUTCMonth());
+//   const netSalary = Math.max(0, grossEarnings - professionalTax);
+
+//   // leavesTaken = all absent days (includes all leave types) + half-day deductions + sandwich deductions
+//   const leavesTaken = summary.absent + (summary.half * 0.5) + sandwichDeductions;
+
+//   return await Payroll.findOneAndUpdate(
+//     { employeeId, month: targetMonth, year: targetYear },
+//     {
+//       employeeCode: employee.employeeCode,
+//       employeeName: employee.name,
+//       fromDate, toDate,
+//       totalDaysInMonth: totalDaysInRange,
+//       presentDays: summary.present,
+//       presentDayDetails,
+//       halfDays: summary.half,
+//       halfDayDetails,
+//       absentDays: summary.absent,
+//       absentDayDetails,
+//       paidLeaves: 0,           // deprecated — all leaves are now absent
+//       unpaidLeaves: summary.absent + sandwichDeductions,
+//       holidays: summary.holiday,
+//       weekOffs: summary.weekOff,
+//       sandwichDeductions,
+//       sandwichDetails,
+//       paidDays, baseSalary, grossEarnings, professionalTax, netSalary,
+//       leavesTaken,
+//       status: 'Processed',
+//       processedBy
+//     },
+//     { upsert: true, new: true }
+//   );
+// }
+
 export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDate, targetMonth, targetYear, processedBy }) => {
   const employee = await Employee.findById(employeeId);
   if (!employee) return null;
@@ -141,7 +433,8 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
     half: 0,
     absent: 0,
     holiday: 0,
-    weekOff: 0
+    weekOff: 0,
+    paidLeave: 0 // Added to track paid leaves correctly
   };
 
   const halfDayDetails = [];
@@ -328,21 +621,36 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
           }
         }
       } else if (['Paid', 'Sick', 'Casual', 'Earned', 'CompOff', 'L'].includes(record.status)) {
-        // All leave types (approved or not) count as absent — no salary credit for leaves.
         const currentDateStr = getUTCDateStr(current);
+        // Check if this specific day falls inside an approved leave request
         const hasApprovedLeave = approvedLeaves.some(leave => {
           const leaveStart = getUTCDateStr(leave.startDate);
           const leaveEnd = getUTCDateStr(leave.endDate);
           return currentDateStr >= leaveStart && currentDateStr <= leaveEnd;
         });
-        const leaveLabel = hasApprovedLeave
-          ? `Leave (${record.status}) — Approved`
-          : `Leave (${record.status}) — Unapproved / LWP`;
-        summary.absent++;
-        absentDayDetails.push({ date: new Date(current), reason: leaveLabel });
+
+        // If HR approved it in the portal, or if it's a guaranteed paid status
+        if (hasApprovedLeave || ['Paid', 'Sick', 'Casual', 'Earned'].includes(record.status)) {
+          summary.paidLeave++;
+          presentDayDetails.push({ 
+            date: new Date(current), 
+            reason: `Paid Leave (${record.status}) — Approved` 
+          });
+        } else {
+          // If no approved ticket is found, it defaults to Loss of Pay
+          summary.absent++;
+          absentDayDetails.push({ 
+            date: new Date(current), 
+            reason: `Leave (${record.status}) — Unapproved / LWP` 
+          });
+        }
       } else {
+        // 👇 The restored block catching specific 'A' or generic statuses
         summary.absent++;
-        absentDayDetails.push({ date: new Date(current), reason: `Status: ${record.status}` });
+        absentDayDetails.push({ 
+          date: new Date(current), 
+          reason: `Status: ${record.status}` 
+        });
       }
     } else {
       summary.absent++;
@@ -352,9 +660,8 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
   }
 
   const sandwichDeductions = sandwichDetails.length;
-  // paidDays: present + half-days + week-offs + holidays minus any sandwich deductions.
-  // Leaves are NOT included — all leave types are treated as absent (LWP).
-  const paidDays = summary.present + (summary.half * 0.5) + summary.weekOff + summary.holiday - sandwichDeductions;
+  // paidDays: present + half-days + week-offs + holidays + paid leaves minus any sandwich deductions.
+  const paidDays = summary.present + (summary.half * 0.5) + summary.weekOff + summary.holiday + summary.paidLeave - sandwichDeductions;
   const baseSalary = employee.salary || 0;
   
   const divisor = totalDaysInRange >= 28 ? totalDaysInRange : 30;
@@ -364,7 +671,7 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
   const professionalTax = calculatePT(baseSalary, employee.gender, toDate.getUTCMonth());
   const netSalary = Math.max(0, grossEarnings - professionalTax);
 
-  // leavesTaken = all absent days (includes all leave types) + half-day deductions + sandwich deductions
+  // leavesTaken = all absent days (includes all unapproved leave types) + half-day deductions + sandwich deductions
   const leavesTaken = summary.absent + (summary.half * 0.5) + sandwichDeductions;
 
   return await Payroll.findOneAndUpdate(
@@ -380,7 +687,7 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
       halfDayDetails,
       absentDays: summary.absent,
       absentDayDetails,
-      paidLeaves: 0,           // deprecated — all leaves are now absent
+      paidLeaves: summary.paidLeave, // Linked the tracker to the DB
       unpaidLeaves: summary.absent + sandwichDeductions,
       holidays: summary.holiday,
       weekOffs: summary.weekOff,
