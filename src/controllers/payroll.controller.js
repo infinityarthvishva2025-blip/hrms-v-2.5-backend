@@ -434,7 +434,7 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
     absent: 0,
     holiday: 0,
     weekOff: 0,
-    paidLeave: 0 // Added to track paid leaves correctly
+    paidLeave: 0 // Tracks paid leaves correctly via the Leave schema
   };
 
   const halfDayDetails = [];
@@ -456,9 +456,14 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
     const isSunday = d.getUTCDay() === 0;
     const isHolid = holidayRecords.some(h => getUTCDateStr(h.date) === dStr);
 
+    if (isSunday || isHolid) {
+      statusCache[dStr] = 'WO_HOLIDAY';
+      return 'WO_HOLIDAY';
+    }
+
     const record = attendanceRecords.find(r => getUTCDateStr(r.date) === dStr);
     
-    // Check if employee worked on Sunday/Holiday
+    // If they worked, it breaks the sandwich
     if (record && (record.status === 'P' || record.status === 'Half' || record.status === 'Coff')) {
       if (record.status === 'Coff') {
         statusCache[dStr] = 'PRESENT';
@@ -475,51 +480,9 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
       }
     }
 
-    if (isSunday || isHolid) {
-      statusCache[dStr] = 'WO_HOLIDAY';
-      return 'WO_HOLIDAY';
-    }
-
-    if (record) {
-      if (record.status === 'P' || record.status === 'Half' || record.status === 'Coff') {
-        if (record.status === 'Coff') {
-          statusCache[dStr] = 'PRESENT';
-          return 'PRESENT';
-        }
-        const workedMins = record.totalMinutes || Math.round((record.totalHours || 0) * 60);
-        const evalResult = evaluateWorkingMinutes(d, workedMins);
-        if (evalResult.isFullDay && record.status !== 'Half') {
-          statusCache[dStr] = 'PRESENT';
-          return 'PRESENT';
-        } else if (evalResult.isHalfDay || record.status === 'Half') {
-          statusCache[dStr] = 'HALF';
-          return 'HALF';
-        } else {
-          statusCache[dStr] = 'LEAVE_ABSENT';
-          return 'LEAVE_ABSENT';
-        }
-      } else if (['Paid', 'Sick', 'Casual', 'Earned', 'CompOff', 'L'].includes(record.status)) {
-        const hasApprovedLeave = approvedLeaves.some(leave => {
-          const leaveStart = getUTCDateStr(leave.startDate);
-          const leaveEnd = getUTCDateStr(leave.endDate);
-          return dStr >= leaveStart && dStr <= leaveEnd;
-        });
-
-        if (hasApprovedLeave) {
-          statusCache[dStr] = 'LEAVE_ABSENT';
-          return 'LEAVE_ABSENT';
-        } else {
-          statusCache[dStr] = 'LEAVE_ABSENT';
-          return 'LEAVE_ABSENT';
-        }
-      } else {
-        statusCache[dStr] = 'LEAVE_ABSENT';
-        return 'LEAVE_ABSENT';
-      }
-    } else {
-      statusCache[dStr] = 'LEAVE_ABSENT';
-      return 'LEAVE_ABSENT';
-    }
+    // If they didn't work (Leave, Absent, No Check-in), it's a potential sandwich bread
+    statusCache[dStr] = 'LEAVE_ABSENT';
+    return 'LEAVE_ABSENT';
   };
 
   // Pre-fill cache
@@ -574,107 +537,58 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
 
     if (isSunday) {
       summary.weekOff++;
-      if (isSandwiched(current)) {
-        sandwichDetails.push({
-          date: new Date(current),
-          reason: 'Weekly Off (Sandwiched)'
-        });
-      }
+      if (isSandwiched(current)) sandwichDetails.push({ date: new Date(current), reason: 'Weekly Off (Sandwiched)' });
     } else if (isHolid) {
       summary.holiday++;
-      if (isSandwiched(current)) {
-        sandwichDetails.push({
-          date: new Date(current),
-          reason: 'Holiday (Sandwiched)'
-        });
-      }
-    } else if (record) {
-      if (record.status === 'P' || record.status === 'Half' || record.status === 'Coff') {
+      if (isSandwiched(current)) sandwichDetails.push({ date: new Date(current), reason: 'Holiday (Sandwiched)' });
+    } else {
+      // 1. Look for an approved leave ticket FIRST, independently of attendance
+      const matchingLeave = approvedLeaves.find(leave => {
+        const leaveStart = getUTCDateStr(leave.startDate);
+        const leaveEnd = getUTCDateStr(leave.endDate);
+        return dStr >= leaveStart && dStr <= leaveEnd;
+      });
+
+      // 2. Check if they physically worked (Prioritize actual work over a leave)
+      if (record && (record.status === 'P' || record.status === 'Half' || record.status === 'Coff')) {
         if (record.status === 'Coff') {
           summary.present++;
-          presentDayDetails.push({
-            date: new Date(current),
-            reason: 'Compensatory Off (Coff)'
-          });
+          presentDayDetails.push({ date: new Date(current), reason: 'Compensatory Off (Coff)' });
         } else {
           const workedMins = record.totalMinutes || Math.round((record.totalHours || 0) * 60);
           const evalResult = evaluateWorkingMinutes(current, workedMins);
 
           if (evalResult.isFullDay && record.status !== 'Half') {
             summary.present++;
-            presentDayDetails.push({
-              date: new Date(current),
-              reason: `Full Present: Worked ${(record.totalHours || workedMins / 60).toFixed(2)} hrs`
-            });
+            presentDayDetails.push({ date: new Date(current), reason: `Full Present: Worked ${(record.totalHours || workedMins / 60).toFixed(2)} hrs` });
           } else if (evalResult.isHalfDay || record.status === 'Half') {
             summary.half++;
-            halfDayDetails.push({ 
-              date: new Date(current), 
-              reason: `Worked ${record.totalHours || (workedMins / 60).toFixed(2)} hrs (Required: ${evalResult.requiredFullMinutes} min, worked: ${workedMins} min)` 
-            });
+            halfDayDetails.push({ date: new Date(current), reason: `Worked ${record.totalHours || (workedMins / 60).toFixed(2)} hrs (Required: ${evalResult.requiredFullMinutes} min)` });
           } else {
             summary.absent++;
-            absentDayDetails.push({ 
-              date: new Date(current), 
-              reason: `Worked ${record.totalHours || (workedMins / 60).toFixed(2)} hrs (Below half day threshold: ${evalResult.minHalfMinutes} min)` 
-            });
+            absentDayDetails.push({ date: new Date(current), reason: `Worked ${record.totalHours || (workedMins / 60).toFixed(2)} hrs (Below half day threshold)` });
           }
         }
-      } else if (['Paid', 'Sick', 'Casual', 'Earned', 'CompOff', 'L', 'Unpaid'].includes(record.status)) {
-        const currentDateStr = getUTCDateStr(current);
-        
-        // 1. Use .find() instead of .some() to grab the actual Leave document
-        const matchingLeave = approvedLeaves.find(leave => {
-          const leaveStart = getUTCDateStr(leave.startDate);
-          const leaveEnd = getUTCDateStr(leave.endDate);
-          return currentDateStr >= leaveStart && currentDateStr <= leaveEnd;
-        });
-
-        if (matchingLeave) {
-          // 2. We found the ticket! Get the exact type from your schema
-          const actualType = matchingLeave.leaveType; 
-
-          if (actualType === 'Unpaid') {
-            // Approved, but explicitly an Unpaid Leave
-            summary.absent++;
-            absentDayDetails.push({ 
-              date: new Date(current), 
-              reason: `Leave (${actualType}) — Approved (LWP)` 
-            });
-          } else {
-            // Approved and it is a paid type (Sick, Casual, Earned, etc.)
-            summary.paidLeave++;
-            presentDayDetails.push({ 
-              date: new Date(current), 
-              reason: `Paid Leave (${actualType}) — Approved` 
-            });
-          }
-        } else if (['Paid', 'Sick', 'Casual', 'Earned'].includes(record.status)) {
-          // 3. Fallback: If no ticket is found, but the attendance status itself is explicitly a paid type
-          summary.paidLeave++;
-          presentDayDetails.push({ 
-            date: new Date(current), 
-            reason: `Paid Leave (${record.status})` 
-          });
-        } else {
-          // 4. Status is just 'L', and no approved ticket exists -> Loss of Pay
+      } 
+      // 3. If they didn't work, process the Leave ticket directly from the Leave schema
+      else if (matchingLeave) {
+        const actualType = matchingLeave.leaveType; 
+        if (actualType === 'Unpaid') {
           summary.absent++;
-          absentDayDetails.push({ 
-            date: new Date(current), 
-            reason: `Leave (${record.status}) — Unapproved / LWP` 
-          });
+          absentDayDetails.push({ date: new Date(current), reason: `Leave (${actualType}) — Approved (LWP)` });
+        } else {
+          summary.paidLeave++;
+          presentDayDetails.push({ date: new Date(current), reason: `Paid Leave (${actualType}) — Approved` });
         }
-      } else {
-        // 👇 The restored block catching specific 'A' or generic statuses
+      } 
+      // 4. No work done, no approved leave ticket found -> Absent
+      else if (record) {
         summary.absent++;
-        absentDayDetails.push({ 
-          date: new Date(current), 
-          reason: `Status: ${record.status}` 
-        });
+        absentDayDetails.push({ date: new Date(current), reason: `Status: ${record.status} (Unapproved / LWP)` });
+      } else {
+        summary.absent++;
+        absentDayDetails.push({ date: new Date(current), reason: 'No Check-in / No Leave Applied' });
       }
-    } else {
-      summary.absent++;
-      absentDayDetails.push({ date: new Date(current), reason: 'No Check-in' });
     }
     current.setUTCDate(current.getUTCDate() + 1);
   }
@@ -691,7 +605,7 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
   const professionalTax = calculatePT(baseSalary, employee.gender, toDate.getUTCMonth());
   const netSalary = Math.max(0, grossEarnings - professionalTax);
 
-  // leavesTaken = all absent days (includes all unapproved leave types) + half-day deductions + sandwich deductions
+  // leavesTaken = all absent days (includes all unapproved leave types and LWP) + half-day deductions + sandwich deductions
   const leavesTaken = summary.absent + (summary.half * 0.5) + sandwichDeductions;
 
   return await Payroll.findOneAndUpdate(
