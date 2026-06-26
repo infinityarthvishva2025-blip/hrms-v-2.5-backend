@@ -569,15 +569,17 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
       // 3. If they didn't work, process the Leave ticket directly from the Leave schema
       else if (matchingLeave) {
         const actualType = matchingLeave.leaveType; 
-        if (actualType === 'Unpaid') {
+        
+        // Strict Business Rule: Only 'Paid' leaves generate pay.
+        if (actualType === 'Paid') {
+          summary.paidLeave++;
+          presentDayDetails.push({ date: new Date(current), reason: `Paid Leave — Approved` });
+        } else {
           summary.absent++;
           absentDayDetails.push({ date: new Date(current), reason: `Leave (${actualType}) — Approved (LWP)` });
-        } else {
-          summary.paidLeave++;
-          presentDayDetails.push({ date: new Date(current), reason: `Paid Leave (${actualType}) — Approved` });
         }
       } 
-      // 4. No work done, no approved leave ticket found (Attendance might say 'L', 'A', 'AUTO') -> Absent
+      // 4. No work done, no approved leave ticket found
       else if (record) {
         summary.absent++;
         absentDayDetails.push({ date: new Date(current), reason: `Status: ${record.status} (Unapproved / LWP)` });
