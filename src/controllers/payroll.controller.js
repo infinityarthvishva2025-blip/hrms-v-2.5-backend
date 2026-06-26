@@ -620,24 +620,44 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
             });
           }
         }
-      } else if (['Paid', 'Sick', 'Casual', 'Earned', 'CompOff', 'L'].includes(record.status)) {
+      } else if (['Paid', 'Sick', 'Casual', 'Earned', 'CompOff', 'L', 'Unpaid'].includes(record.status)) {
         const currentDateStr = getUTCDateStr(current);
-        // Check if this specific day falls inside an approved leave request
-        const hasApprovedLeave = approvedLeaves.some(leave => {
+        
+        // 1. Use .find() instead of .some() to grab the actual Leave document
+        const matchingLeave = approvedLeaves.find(leave => {
           const leaveStart = getUTCDateStr(leave.startDate);
           const leaveEnd = getUTCDateStr(leave.endDate);
           return currentDateStr >= leaveStart && currentDateStr <= leaveEnd;
         });
 
-        // If HR approved it in the portal, or if it's a guaranteed paid status
-        if (hasApprovedLeave || ['Paid', 'Sick', 'Casual', 'Earned'].includes(record.status)) {
+        if (matchingLeave) {
+          // 2. We found the ticket! Get the exact type from your schema
+          const actualType = matchingLeave.leaveType; 
+
+          if (actualType === 'Unpaid') {
+            // Approved, but explicitly an Unpaid Leave
+            summary.absent++;
+            absentDayDetails.push({ 
+              date: new Date(current), 
+              reason: `Leave (${actualType}) — Approved (LWP)` 
+            });
+          } else {
+            // Approved and it is a paid type (Sick, Casual, Earned, etc.)
+            summary.paidLeave++;
+            presentDayDetails.push({ 
+              date: new Date(current), 
+              reason: `Paid Leave (${actualType}) — Approved` 
+            });
+          }
+        } else if (['Paid', 'Sick', 'Casual', 'Earned'].includes(record.status)) {
+          // 3. Fallback: If no ticket is found, but the attendance status itself is explicitly a paid type
           summary.paidLeave++;
           presentDayDetails.push({ 
             date: new Date(current), 
-            reason: `Paid Leave (${record.status}) — Approved` 
+            reason: `Paid Leave (${record.status})` 
           });
         } else {
-          // If no approved ticket is found, it defaults to Loss of Pay
+          // 4. Status is just 'L', and no approved ticket exists -> Loss of Pay
           summary.absent++;
           absentDayDetails.push({ 
             date: new Date(current), 
