@@ -400,8 +400,6 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
   if (!employee) return null;
 
   // Total days in range is inclusive: count every calendar day from fromDate to toDate.
-  // We add 1 because both endpoints are included (e.g. Mar 21 → Apr 20 = 31 days, not 30).
-  // toDate is set to 23:59:59 on the last day, so we floor the difference then add 1.
   const totalDaysInRange = Math.floor((toDate - fromDate) / (1000 * 60 * 60 * 24)) + 1;
 
   // Calculate extended range for sandwich checking
@@ -410,7 +408,7 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
   const extendedToDate = new Date(toDate);
   extendedToDate.setUTCDate(extendedToDate.getUTCDate() + 10);
 
-  // ── FETCH ATTENDANCE, HOLIDAYS & APPROVED LEAVES (EXTENDED FOR SANDWICH CHECK) ──
+  // ── FETCH ATTENDANCE, HOLIDAYS & APPROVED LEAVES ──
   const [attendanceRecords, holidayRecords, approvedLeaves] = await Promise.all([
     Attendance.find({
       employeeId,
@@ -419,7 +417,6 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
     Holiday.find({
       date: { $gte: extendedFromDate, $lte: extendedToDate }
     }),
-    // Only fetch leaves that have been fully approved
     Leave.find({
       employeeId,
       overallStatus: 'Approved',
@@ -434,7 +431,7 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
     absent: 0,
     holiday: 0,
     weekOff: 0,
-    paidLeave: 0 // Tracks paid leaves correctly via the Leave schema
+    paidLeave: 0
   };
 
   const halfDayDetails = [];
@@ -446,7 +443,7 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
   };
 
-  // Status cache for extended range
+  // ── 1. SANDWICH CACHE HELPER ──
   const statusCache = {};
 
   const getDayStatus = (d) => {
@@ -463,14 +460,15 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
 
     const record = attendanceRecords.find(r => getUTCDateStr(r.date) === dStr);
     
-    // If they worked, it breaks the sandwich
-    if (record && (record.status === 'P' || record.status === 'Half' || record.status === 'Coff')) {
+    // If they physically worked, it breaks the sandwich
+    if (record && ['P', 'Half', 'Coff'].includes(record.status)) {
       if (record.status === 'Coff') {
         statusCache[dStr] = 'PRESENT';
         return 'PRESENT';
       }
       const workedMins = record.totalMinutes || Math.round((record.totalHours || 0) * 60);
       const evalResult = evaluateWorkingMinutes(d, workedMins);
+      
       if (evalResult.isFullDay && record.status !== 'Half') {
         statusCache[dStr] = 'PRESENT';
         return 'PRESENT';
@@ -480,7 +478,7 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
       }
     }
 
-    // If they didn't work (Leave, Absent, No Check-in), it's a potential sandwich bread
+    // If they didn't work (Leave, Absent, 'AUTO', or No Record), it's a potential sandwich bread
     statusCache[dStr] = 'LEAVE_ABSENT';
     return 'LEAVE_ABSENT';
   };
@@ -492,12 +490,10 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
     tempDate.setUTCDate(tempDate.getUTCDate() + 1);
   }
 
+  // ── 2. SANDWICH CHECKER ──
   const isSandwiched = (d) => {
-    if (getDayStatus(d) !== 'WO_HOLIDAY') {
-      return false;
-    }
+    if (getDayStatus(d) !== 'WO_HOLIDAY') return false;
 
-    // Search backwards
     let leftStatus = null;
     let tempLeft = new Date(d);
     while (true) {
@@ -510,7 +506,6 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
       }
     }
 
-    // Search forwards
     let rightStatus = null;
     let tempRight = new Date(d);
     while (true) {
@@ -528,11 +523,12 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
 
   const sandwichDetails = [];
 
+  // ── 3. MAIN PAYROLL LOOP ──
   let current = new Date(fromDate);
   while (current <= toDate) {
     const dStr = getUTCDateStr(current);
     const record = attendanceRecords.find(r => getUTCDateStr(r.date) === dStr);
-    const isSunday = current.getUTCDay() === 0; // Use UTC day since fromDate/toDate are UTC
+    const isSunday = current.getUTCDay() === 0;
     const isHolid = holidayRecords.some(h => getUTCDateStr(h.date) === dStr);
 
     if (isSunday) {
@@ -542,15 +538,15 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
       summary.holiday++;
       if (isSandwiched(current)) sandwichDetails.push({ date: new Date(current), reason: 'Holiday (Sandwiched)' });
     } else {
-      // 1. Look for an approved leave ticket FIRST, independently of attendance
+      // 1. Look for an approved leave ticket independently
       const matchingLeave = approvedLeaves.find(leave => {
         const leaveStart = getUTCDateStr(leave.startDate);
         const leaveEnd = getUTCDateStr(leave.endDate);
         return dStr >= leaveStart && dStr <= leaveEnd;
       });
 
-      // 2. Check if they physically worked (Prioritize actual work over a leave)
-      if (record && (record.status === 'P' || record.status === 'Half' || record.status === 'Coff')) {
+      // 2. Did they physically work? (Prioritize actual work over a leave)
+      if (record && ['P', 'Half', 'Coff'].includes(record.status)) {
         if (record.status === 'Coff') {
           summary.present++;
           presentDayDetails.push({ date: new Date(current), reason: 'Compensatory Off (Coff)' });
@@ -566,7 +562,7 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
             halfDayDetails.push({ date: new Date(current), reason: `Worked ${record.totalHours || (workedMins / 60).toFixed(2)} hrs (Required: ${evalResult.requiredFullMinutes} min)` });
           } else {
             summary.absent++;
-            absentDayDetails.push({ date: new Date(current), reason: `Worked ${record.totalHours || (workedMins / 60).toFixed(2)} hrs (Below half day threshold)` });
+            absentDayDetails.push({ date: new Date(current), reason: `Worked ${record.totalHours || (workedMins / 60).toFixed(2)} hrs (Below threshold)` });
           }
         }
       } 
@@ -581,7 +577,7 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
           presentDayDetails.push({ date: new Date(current), reason: `Paid Leave (${actualType}) — Approved` });
         }
       } 
-      // 4. No work done, no approved leave ticket found -> Absent
+      // 4. No work done, no approved leave ticket found (Attendance might say 'L', 'A', 'AUTO') -> Absent
       else if (record) {
         summary.absent++;
         absentDayDetails.push({ date: new Date(current), reason: `Status: ${record.status} (Unapproved / LWP)` });
@@ -593,7 +589,9 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
     current.setUTCDate(current.getUTCDate() + 1);
   }
 
+  // ── 4. FINANCIAL CALCULATIONS ──
   const sandwichDeductions = sandwichDetails.length;
+  
   // paidDays: present + half-days + week-offs + holidays + paid leaves minus any sandwich deductions.
   const paidDays = summary.present + (summary.half * 0.5) + summary.weekOff + summary.holiday + summary.paidLeave - sandwichDeductions;
   const baseSalary = employee.salary || 0;
@@ -605,9 +603,9 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
   const professionalTax = calculatePT(baseSalary, employee.gender, toDate.getUTCMonth());
   const netSalary = Math.max(0, grossEarnings - professionalTax);
 
-  // leavesTaken = all absent days (includes all unapproved leave types and LWP) + half-day deductions + sandwich deductions
   const leavesTaken = summary.absent + (summary.half * 0.5) + sandwichDeductions;
 
+  // ── 5. SAVE TO DB ──
   return await Payroll.findOneAndUpdate(
     { employeeId, month: targetMonth, year: targetYear },
     {
@@ -621,7 +619,7 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
       halfDayDetails,
       absentDays: summary.absent,
       absentDayDetails,
-      paidLeaves: summary.paidLeave, // Linked the tracker to the DB
+      paidLeaves: summary.paidLeave,
       unpaidLeaves: summary.absent + sandwichDeductions,
       holidays: summary.holiday,
       weekOffs: summary.weekOff,
@@ -635,44 +633,6 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
     { upsert: true, new: true }
   );
 }
-
-// ─── GENERATE PAYROLL ENDPOINT ───────────────────────────────────────────────
-
-export const generatePayroll = asyncHandler(async (req, res) => {
-  const { employeeId, month, year, startDate, endDate } = req.body;
-  if (!employeeId) throw new ApiError(400, 'employeeId is required');
-
-  const isManagement = ['SuperUser', 'HR', 'Director', 'VP', 'GM', 'Manager'].includes(req.user.role);
-  if (!isManagement && req.user._id.toString() !== employeeId) {
-    throw new ApiError(403, 'You are not authorized to generate payroll for other employees.');
-  }
-
-  let fromDate, toDate;
-  let targetMonth, targetYear;
-
-  if (startDate && endDate) {
-    // Force UTC midnight to prevent timezone-related day shifts during generation
-    fromDate = new Date(`${startDate}T00:00:00Z`);
-    toDate = new Date(`${endDate}T23:59:59Z`);
-    targetMonth = toDate.getUTCMonth() + 1;
-    targetYear = toDate.getUTCFullYear();
-  } else if (month && year) {
-    // Default cycle (21st to 20th) logic in UTC
-    fromDate = new Date(Date.UTC(year, month - 2, 21, 0, 0, 0));
-    toDate = new Date(Date.UTC(year, month - 1, 20, 23, 59, 59));
-    targetMonth = month;
-    targetYear = year;
-  } else {
-    throw new ApiError(400, 'Either startDate/endDate or month/year is required');
-  }
-
-  const payroll = await processSingleEmployeePayroll({
-    employeeId, fromDate, toDate, targetMonth, targetYear, processedBy: req.user._id
-  });
-
-  if (!payroll) throw new ApiError(404, 'Employee not found');
-  res.status(200).json(new ApiResponse(200, payroll, 'Payroll generated successfully'));
-});
 
 // ─── GENERATE ALL PAYROLL (BULK) ─────────────────────────────────────────────
 
