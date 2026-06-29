@@ -524,9 +524,24 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
   const sandwichDetails = [];
 
   // ── 3. MAIN PAYROLL LOOP ──
+  // Create a normalized string for the joining date (if it exists in your schema)
+  let joiningDateStr = null;
+  if (employee.joiningDate) { 
+    joiningDateStr = getUTCDateStr(employee.joiningDate);
+  }
+
   let current = new Date(fromDate);
   while (current <= toDate) {
     const dStr = getUTCDateStr(current);
+
+    // 👇 Intercept days before the employee was hired
+    if (joiningDateStr && dStr < joiningDateStr) {
+      // Do not increment absent++, weekOff++, etc. It is just a non-payable day.
+      absentDayDetails.push({ date: new Date(current), reason: 'Before Joining Date' });
+      current.setUTCDate(current.getUTCDate() + 1);
+      continue; // Skip the rest of the loop for this day
+    }
+
     const record = attendanceRecords.find(r => getUTCDateStr(r.date) === dStr);
     const isSunday = current.getUTCDay() === 0;
     const isHolid = holidayRecords.some(h => getUTCDateStr(h.date) === dStr);
