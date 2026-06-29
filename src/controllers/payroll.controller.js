@@ -461,11 +461,8 @@ export const processSingleEmployeePayroll = async ({ employeeId, fromDate, toDat
     const record = attendanceRecords.find(r => getUTCDateStr(r.date) === dStr);
     
     // If they physically worked, it breaks the sandwich
-    if (record && ['P', 'Half', 'Coff'].includes(record.status)) {
-      if (record.status === 'Coff') {
-        statusCache[dStr] = 'PRESENT';
-        return 'PRESENT';
-      }
+    //  NEW CODE: Only physical work breaks the sandwich
+    if (record && ['P', 'Half'].includes(record.status)) {
       const workedMins = record.totalMinutes || Math.round((record.totalHours || 0) * 60);
       const evalResult = evaluateWorkingMinutes(d, workedMins);
       
